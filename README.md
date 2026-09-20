@@ -29,6 +29,9 @@ public server re-checks and re-scores it independently, so a long local solve ca
 answer everyone gets. Only the request (grid cells, targets, priorities, effect weights)
 and the layout are sent. To opt out, set `"contribute": false` in `config.json`.
 
+Stopping a solve early still offers the best layout it had found, so a long run you
+cut short is not wasted.
+
 ## Options
 
 Edit `config.json` and restart the server. Every setting is optional; a missing

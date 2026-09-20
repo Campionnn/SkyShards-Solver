@@ -19,12 +19,12 @@ FULL_GRID_CELLS = 100
 def worth_offering(params: Dict, result: Dict) -> bool:
     if not ENABLED or not isinstance(result, dict):
         return False
-    if result.get("status") not in ("OPTIMAL", "FEASIBLE"):
+    if result.get("status") not in ("OPTIMAL", "FEASIBLE", "CANCELLED"):
+        return False
+    if not result.get("mutations"):
         return False
     if params.get("locks"):
         return False
-    if params.get("priorities"):
-        pass
     targets = params.get("targets") or []
     cells = params.get("cells") or []
     if len(cells) == FULL_GRID_CELLS:
