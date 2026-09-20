@@ -37,9 +37,8 @@ HOST = "127.0.0.1"
 
 engine.SOLVER_THREADS = config.SOLVER_THREADS
 
+ORIGIN_PATTERN = r"https://([a-z0-9-]+\.)?skyshards\.com"
 DEFAULT_ORIGINS = [
-    "https://skyshards.com",
-    "https://www.skyshards.com",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
 ]
@@ -84,7 +83,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="SkyShards local solver", version=VERSION, lifespan=lifespan)
 
-_cors_kwargs = dict(allow_origins=allowed_origins(), allow_methods=["*"], allow_headers=["*"])
+_cors_kwargs = dict(allow_origins=allowed_origins(), allow_origin_regex=ORIGIN_PATTERN,
+                    allow_methods=["*"], allow_headers=["*"])
 if "allow_private_network" in inspect.signature(CORSMiddleware.__init__).parameters:
     _cors_kwargs["allow_private_network"] = True
 app.add_middleware(CORSMiddleware, **_cors_kwargs)
@@ -191,7 +191,7 @@ def print_banner():
     print(f"  SkyShards local solver v{VERSION}")
     print(f"  Listening on http://{HOST}:{PORT}")
     print("")
-    print("  Keep this window open. Then open https://skyshards.com,")
+    print("  Keep this window open. Then open https://greenhouse.skyshards.com,")
     print("  and turn on 'Solve locally' in the calculator.")
     if contribute.ENABLED:
         print("")

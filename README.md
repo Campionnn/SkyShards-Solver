@@ -39,7 +39,7 @@ or invalid one falls back to its default and prints a note.
 | `port` | `8765` | Port the server listens on (set the same port in the website panel) |
 | `solver_threads` | `8` | CP-SAT search threads; lower it on a small laptop |
 | `contribute` | `true` | `false` stops uploading better layouts |
-| `extra_origins` | `[]` | Extra websites allowed to use this server |
+| `extra_origins` | `[]` | Extra websites allowed to use this server (skyshards.com and its subdomains always are) |
 
 How long a solve may run is not configured here. The website sends a time limit
 with each solve and it is used as given, so change it in the **Local solver**
