@@ -50,7 +50,7 @@ from solver import (
     add_special_eligibility_constraints,
 )
 
-from gamedata import DEFAULT_DATA
+from gamedata import DEFAULT_DATA, DEFAULT_EFFECT_WEIGHTS
 
 
 # Load default priorities from JSON file
@@ -76,6 +76,13 @@ BUFF_TABLE = build_buff_table(
 MAX_EFFECT_WEIGHT = 100.0
 
 SOLVER_THREADS = int(os.environ.get("SKYSHARDS_SOLVER_WORKERS", "8"))
+
+
+def with_default_effect_weights(params: Dict) -> Dict:
+    """Fill in the default effect weights when a request names none."""
+    if params.get("effect_weights") is None:
+        return {**params, "effect_weights": dict(DEFAULT_EFFECT_WEIGHTS)}
+    return params
 
 
 def clamp_client_time_limit(time_limit: Optional[float], ceiling: Optional[float] = None) -> Optional[float]:

@@ -9,6 +9,13 @@ data_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data.json"
 with open(data_file, "r") as f:
     _RAW_DATA = json.load(f)
 
+_weights_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "default_effect_weights.json")
+try:
+    with open(_weights_file, "r") as f:
+        DEFAULT_EFFECT_WEIGHTS = {k: float(v) for k, v in json.load(f).items() if float(v) != 0.0}
+except (OSError, ValueError):
+    DEFAULT_EFFECT_WEIGHTS = {}
+
 
 # Full data preserving the object structure for data lookups
 FULL_DATA = _RAW_DATA
@@ -66,4 +73,5 @@ DEFAULT_DATA = {
     "effects": _RAW_DATA.get("effects", {}),
     "effect_meta": EFFECT_META,
     "buff_crops": default_buff_crops(_crops_list),
+    "default_effect_weights": DEFAULT_EFFECT_WEIGHTS,
 }

@@ -124,7 +124,7 @@ async def submit_job(request: JobSubmitRequest):
             detail=f"Job type '{request.type}' is not available in the local solver; use api.skyshards.com",
         )
     job_mgr = get_job_manager()
-    params = {**request.params, "_request_type": request.type}
+    params = {**engine.with_default_effect_weights(request.params), "_request_type": request.type}
     job_id = job_mgr.create_job(request_type=request.type, request_params=params)
     return JobSubmitResponse(job_id=job_id, status=JobStatus.QUEUED.value, message="Job queued successfully")
 
@@ -171,6 +171,7 @@ def solve_direct(payload: Dict = Body(...), maximize_only: bool = False, time_li
     if isinstance(payload.get("req"), dict) and "cells" not in payload:
         payload = payload["req"]
     payload.pop("unique_crops", None)
+    payload = engine.with_default_effect_weights(payload)
     try:
         req = GenericSolveRequest(**payload)
     except ValidationError as e:
