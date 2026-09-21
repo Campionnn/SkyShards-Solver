@@ -58,13 +58,13 @@ def is_all_positive_special(mut) -> bool:
 SCALING_QUIRKS: Dict[str, Dict] = {
     "ashwreath": {
         "scaling_crop": "nether_wart",
-        "full_weight_multiplicity": 2,
+        "full_weight_count": 4,
     },
 }
 
 
 def scaling_requirement(mut) -> Optional[Tuple[str, int]]:
-    """The (crop, per-unit count) that drives this mutation's weight past the"""
+    """The (crop, base requirement count) that drives this mutation's weight past"""
     quirk = SCALING_QUIRKS.get(name_of(mut))
     if not quirk:
         return None
@@ -77,7 +77,12 @@ def scaling_requirement(mut) -> Optional[Tuple[str, int]]:
 
 def full_weight_multiplicity(mut) -> int:
     """k at which this mutation's weight reaches its listed spawn_weight."""
-    return SCALING_QUIRKS.get(name_of(mut), {}).get("full_weight_multiplicity", 1)
+    scaling = scaling_requirement(mut)
+    if scaling is None:
+        return 1
+    _, base_count = scaling
+    full_count = SCALING_QUIRKS[name_of(mut)]["full_weight_count"]
+    return max(1, full_count - base_count + 1)
 
 
 def max_multiplicity(mut, ring: int) -> int:
@@ -85,30 +90,19 @@ def max_multiplicity(mut, ring: int) -> int:
     scaling = scaling_requirement(mut)
     if scaling is None:
         return 1
-    crop, unit_count = scaling
-    if unit_count <= 0:
+    _, base_count = scaling
+    if base_count <= 0:
         return 1
-    fixed = sum(count for c, count in requirements_of(mut) if c != crop)
-    room = ring - fixed
-    if room <= 0:
+    required = sum(count for _, count in requirements_of(mut))
+    room = ring - required
+    if room < 0:
         return 0
-    return max(0, min(room // unit_count, full_weight_multiplicity(mut)))
+    return max(0, min(room + 1, full_weight_multiplicity(mut)))
 
 
 def solver_multiplicity_cap(mut, ring: int) -> int:
     """The largest `k` the solver bothers to model at a position."""
-    scaling = scaling_requirement(mut)
-    if scaling is None:
-        return 1
-    crop, unit_count = scaling
-    if unit_count <= 0:
-        return 1
-    fixed = sum(count for c, count in requirements_of(mut) if c != crop)
-    room = ring - fixed
-    if room <= 0:
-        return 0
-    cap = (room - 1) // unit_count
-    return max(0, min(max_multiplicity(mut, ring), cap, MULTIPLICITY_SEARCH_CAP))
+    return min(max_multiplicity(mut, ring), MULTIPLICITY_SEARCH_CAP)
 
 
 def multiplicity(mut, adjacent_counts: Dict[str, int], special_eligible: Optional[bool] = None) -> int:
@@ -131,8 +125,8 @@ def multiplicity(mut, adjacent_counts: Dict[str, int], special_eligible: Optiona
     if scaling is None:
         return 1
 
-    crop, unit_count = scaling
-    k = adjacent_counts.get(crop, 0) // unit_count
+    crop, base_count = scaling
+    k = adjacent_counts.get(crop, 0) - base_count + 1
     return max(1, min(k, full_weight_multiplicity(mut)))
 
 
@@ -153,10 +147,15 @@ def effective_weight(mut, k: int) -> float:
     weight = weight_of(mut)
     if weight <= 0 or k <= 0:
         return 0.0
-    full_k = full_weight_multiplicity(mut)
-    if full_k <= 1:
+    scaling = scaling_requirement(mut)
+    if scaling is None:
         return float(weight)
-    return min(float(weight), weight * k / full_k)
+    _, base_count = scaling
+    full_count = SCALING_QUIRKS[name_of(mut)]["full_weight_count"]
+    if full_count <= 0:
+        return float(weight)
+    scaling_crops = base_count + k - 1
+    return min(float(weight), weight * scaling_crops / full_count)
 
 
 def build_pool(

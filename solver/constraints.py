@@ -2,11 +2,11 @@
 # SkyShards local solver. See LICENSE.
 
 from math import gcd
-from typing import List, Dict, Optional, Tuple, TYPE_CHECKING
+from typing import Dict, Iterable, List, Optional, Tuple, TYPE_CHECKING
 from ortools.sat.python import cp_model
 
 from .helpers import get_crop_cells, get_adjacent_cells_for_mutation
-from .spawn import marginal_rates, solver_multiplicity_cap, weight_of
+from .spawn import marginal_rates, scaling_requirement, solver_multiplicity_cap, weight_of
 from .effects import ZERO_WEIGHT_SLOT_UNIT
 from .effect_model import ObjectiveScales, common_gcd
 
@@ -169,6 +169,8 @@ def add_mutation_eligibility_constraints(
         for pos, e_var in mutation_vars[mut.name].items():
             mut_adjacent = mutation_adjacent_cells[mut.name][pos]
             chain = mut_chains.get(pos)
+            scaling = scaling_requirement(mut) if chain is not None else None
+            scaling_crop = scaling[0] if scaling else None
 
             # Handle requires_zero_adjacent for lonelily
             if mut.requires_zero_adjacent:
@@ -205,14 +207,15 @@ def add_mutation_eligibility_constraints(
                     for crop_pos in index.get(cell, ()):
                         overlap_by_pos[crop_pos] = overlap_by_pos.get(crop_pos, 0) + 1
 
-                if chain is not None:
+                if chain is not None and crop_name == scaling_crop:
                     crop_positions = crop_vars.get(crop_name, {})
                     variable_part = sum(
                         crop_positions[crop_pos] * count
                         for crop_pos, count in overlap_by_pos.items()
                     )
                     model.Add(
-                        variable_part + fixed_contribution >= required_count * sum(chain)
+                        variable_part + fixed_contribution
+                        >= (required_count - 1) * chain[0] + sum(chain)
                     )
                     continue
 
@@ -272,22 +275,33 @@ def collect_base_terms(
     mutation_vars: Dict[str, Dict[tuple, cp_model.IntVar]],
     mutation_chain_vars: Optional[Dict[str, Dict[tuple, List[cp_model.IntVar]]]] = None,
     mutation_defs: Optional[Dict] = None,
+    fixed_count_mutations: Optional[Iterable[str]] = None,
 ) -> Tuple[List[Tuple[int, cp_model.IntVar]], bool]:
     """Raw (un-normalised) spawn-rate objective terms for the maximize targets:"""
     defs = mutation_defs or {}
     chains = mutation_chain_vars or {}
     per_position: List[Tuple[List[cp_model.IntVar], List[int]]] = []
 
+    def rates_for(mut, chain):
+        if mut is None or weight_of(mut) <= 0:
+            return [ZERO_WEIGHT_SLOT_UNIT] + [0] * (len(chain) - 1)
+        return marginal_rates(mut, len(chain))
+
     for mut_name in maximize_mutations:
         mut = defs.get(mut_name)
         mut_chains = chains.get(mut_name, {})
         for pos, e_var in mutation_vars[mut_name].items():
             chain = mut_chains.get(pos) or [e_var]
-            if mut is None or weight_of(mut) <= 0:
-                rates = [ZERO_WEIGHT_SLOT_UNIT] + [0] * (len(chain) - 1)
-            else:
-                rates = marginal_rates(mut, len(chain))
-            per_position.append((chain, rates))
+            per_position.append((chain, rates_for(mut, chain)))
+
+    scored_fixed_links = False
+    for mut_name in fixed_count_mutations or ():
+        mut = defs.get(mut_name)
+        for pos, chain in chains.get(mut_name, {}).items():
+            if len(chain) <= 1:
+                continue
+            per_position.append((chain[1:], rates_for(mut, chain)[1:]))
+            scored_fixed_links = True
 
     terms: List[Tuple[int, cp_model.IntVar]] = []
     distinct_rates = set()
@@ -296,7 +310,11 @@ def collect_base_terms(
             if rate:
                 terms.append((rate, var))
                 distinct_rates.add(rate)
-    plain_shape = all(len(chain) == 1 for chain, _ in per_position) and len(distinct_rates) <= 1
+    plain_shape = (
+        not scored_fixed_links
+        and all(len(chain) == 1 for chain, _ in per_position)
+        and len(distinct_rates) <= 1
+    )
     return terms, plain_shape
 
 
@@ -338,12 +356,13 @@ def build_objective(
     for mut_name, target_count in target_mutations.items():
         model.Add(sum(mutation_vars[mut_name].values()) == target_count)
 
-    base_terms: List[Tuple[int, cp_model.IntVar]] = []
-    plain_shape = True
-    if has_maximize:
-        base_terms, plain_shape = collect_base_terms(
-            maximize_mutations, mutation_vars, mutation_chain_vars, mutation_defs
-        )
+    base_terms, plain_shape = collect_base_terms(
+        maximize_mutations if has_maximize else [],
+        mutation_vars,
+        mutation_chain_vars,
+        mutation_defs,
+        fixed_count_mutations=target_mutations.keys(),
+    )
     effect_terms = list(effect_terms or [])
     score_terms = base_terms + effect_terms
     divisor = common_gcd(c for c, _ in score_terms)
