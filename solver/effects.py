@@ -108,6 +108,38 @@ def default_buff_crops(all_crops: Iterable) -> List[str]:
 
 CARDINAL = ((-1, 0), (1, 0), (0, -1), (0, 1))
 
+RELAY_HASH_COLUMN_FACTOR = 13
+RELAY_TABLE_INITIAL = 16
+RELAY_TABLE_LOAD_FACTOR = 0.75
+
+
+def relay_table_size(spreader_count: int) -> int:
+    """HashMap capacity holding `spreader_count` entries: 16, doubled while"""
+    table = RELAY_TABLE_INITIAL
+    while spreader_count > RELAY_TABLE_LOAD_FACTOR * table:
+        table *= 2
+    return table
+
+
+def relay_turn_key(position, table: int) -> Tuple[int, int, int]:
+    """Sort key for a spreader's turn: its hash slot, then row, then column."""
+    row, col = position
+    return ((RELAY_HASH_COLUMN_FACTOR * col + row) % table, row, col)
+
+
+def relay_regimes(cells: Iterable) -> List[Tuple[int, int, Optional[int]]]:
+    """Every (table, min_count, max_count) whose turn order can differ on"""
+    max_key = max((RELAY_HASH_COLUMN_FACTOR * c + r for r, c in cells), default=0)
+    out: List[Tuple[int, int, Optional[int]]] = []
+    table, lo = RELAY_TABLE_INITIAL, 0
+    while True:
+        hi = int(RELAY_TABLE_LOAD_FACTOR * table)
+        if table > max_key:
+            out.append((table, lo, None))
+            return out
+        out.append((table, lo, hi))
+        table, lo = table * 2, hi + 1
+
 
 @dataclass
 class SimPlant:
@@ -124,6 +156,8 @@ class SimPlant:
 class EffectSimulation:
     cell_to_plant: Dict[tuple, SimPlant]
     plants: List[SimPlant]
+    relay_order: List[SimPlant] = field(default_factory=list)   # spreaders, in turn order
+    relay_table: int = RELAY_TABLE_INITIAL
 
 
     def raw_at(self, cell) -> FrozenSet[str]:
@@ -165,9 +199,8 @@ def simulate_effects(
     placements: Sequence,
     mutation_slots: Sequence,
     buff_table: Dict[str, PlantBuffs],
-    passes: int = 2,
 ) -> EffectSimulation:
-    """Run the game's propagation loop over a concrete layout."""
+    """Run the game's propagation over a concrete layout (module docstring)."""
     cell_set = {tuple(c) for c in cells}
     cell_to_plant: Dict[tuple, SimPlant] = {}
     plants: List[SimPlant] = []
@@ -192,27 +225,35 @@ def simulate_effects(
         name, pos, size = _placement_fields(s)
         add(name, pos, size, True)
 
-    order = sorted(cell_set)
-    for _ in range(passes):
-        for cell in order:
-            plant = cell_to_plant.get(cell)
-            if plant is None or plant.is_mutation_slot:
-                continue
-            if plant.buffs.spreads:
-                # Relay everything held except effect_spread itself.
-                payload = plant.buffs.intrinsic | (plant.has - {RELAY_EFFECT})
-            else:
-                payload = plant.buffs.intrinsic
-            if not payload:
-                continue
-            r, c = cell
+    def neighbours(plant: SimPlant) -> List[SimPlant]:
+        seen: List[SimPlant] = []
+        for r, c in plant.cells:
             for dr, dc in CARDINAL:
                 q = cell_to_plant.get((r + dr, c + dc))
-                if q is None or q is plant:
-                    continue
-                q.has |= payload
+                if q is not None and q is not plant and all(q is not x for x in seen):
+                    seen.append(q)
+        return seen
 
-    return EffectSimulation(cell_to_plant=cell_to_plant, plants=plants)
+    for plant in plants:
+        if plant.is_mutation_slot or not plant.buffs.intrinsic:
+            continue
+        for q in neighbours(plant):
+            q.has |= plant.buffs.intrinsic
+
+    # 2-3. One relay turn per spreader, in HashMap order.
+    spreaders = [p for p in plants if not p.is_mutation_slot and RELAY_EFFECT in p.has]
+    table = relay_table_size(len(spreaders))
+    spreaders.sort(key=lambda p: relay_turn_key(p.position, table))
+    for plant in spreaders:
+        payload = plant.has - {RELAY_EFFECT}
+        if not payload:
+            continue
+        for q in neighbours(plant):
+            q.has |= payload
+
+    return EffectSimulation(
+        cell_to_plant=cell_to_plant, plants=plants, relay_order=spreaders, relay_table=table,
+    )
 
 
 def resolve_effect_weights(targets: Sequence, request_weights: Optional[Dict[str, float]]) -> Dict[str, Dict[str, float]]:

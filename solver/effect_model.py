@@ -8,7 +8,16 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 from ortools.sat.python import cp_model
 
-from .effects import IMPROVED_OF, NEGATIVE_EFFECTS, RELAY_EFFECT, SPECIAL_EFFECT_SETS, PlantBuffs, slot_unit_int
+from .effects import (
+    IMPROVED_OF,
+    NEGATIVE_EFFECTS,
+    RELAY_EFFECT,
+    SPECIAL_EFFECT_SETS,
+    PlantBuffs,
+    relay_regimes,
+    relay_turn_key,
+    slot_unit_int,
+)
 from .helpers import get_crop_cells
 
 Literal = Union[bool, cp_model.IntVar, object]
@@ -165,121 +174,214 @@ def build_effect_model(
     buff_table: Dict[str, PlantBuffs],
     locked_placements: Optional[Sequence[Dict]],
     needed: Iterable[str],
-    passes: int = 2,
 ) -> EffectModel:
-    """Unroll the propagation loop for the effects in `needed` and return the"""
+    """Encode direct effects plus the one-turn-per-spreader relay for the effects"""
     b = _Builder(model)
     effects = tuple(sorted(needed))
     if not effects:
         return EffectModel(effects=(), has_final={}, spread_possible=False, stats={}, _builder=b)
+    relayed = tuple(e for e in effects if e != RELAY_EFFECT)
+    tracked = tuple(sorted(set(effects) | {RELAY_EFFECT}))
+    order = sorted(cell_set)
 
-    sources: Dict[tuple, Dict[str, List]] = {c: {e: [] for e in effects} for c in cell_set}
-    spread_sources: Dict[tuple, List] = {c: [] for c in cell_set}
-    locked_intrinsic: Dict[tuple, set] = {}
-    locked_spread: set = set()
-
-    def register(name, pos, var, occupied):
-        buffs = buff_table.get(name)
-        if buffs is None:
-            return
-        for cell in occupied:
-            if cell not in sources:
-                continue
-            for e in buffs.intrinsic:
-                if e in sources[cell]:
-                    sources[cell][e].append(var)
-            if buffs.spreads:
-                spread_sources[cell].append(var)
-
+    placements: List[Tuple[Literal, frozenset, tuple, frozenset]] = []
     for name, positions in crop_vars.items():
-        occ = crop_occupied_cells.get(name, {})
+        occ_map = crop_occupied_cells.get(name, {})
+        buffs = buff_table.get(name)
+        listed = frozenset(buffs.intrinsic) if buffs is not None else frozenset()
         for pos, var in positions.items():
-            register(name, pos, var, occ.get(pos, ()))
+            occ = frozenset(c for c in occ_map.get(pos, ()) if c in cell_set)
+            if occ:
+                placements.append((var, occ, tuple(pos), listed))
     for lock in locked_placements or []:
         name = lock.get("name") or lock.get("crop")
         buffs = buff_table.get(name)
-        if buffs is None:
-            continue
-        for cell in get_crop_cells(tuple(lock["position"]), int(lock.get("size", 1))):
-            if cell in cell_set:
-                locked_intrinsic.setdefault(cell, set()).update(buffs.intrinsic)
-                if buffs.spreads:
-                    locked_spread.add(cell)
+        listed = frozenset(buffs.intrinsic) if buffs is not None else frozenset()
+        pos = tuple(lock["position"])
+        occ = frozenset(c for c in get_crop_cells(pos, int(lock.get("size", 1))) if c in cell_set)
+        if occ:
+            placements.append((True, occ, pos, listed))
 
-    def intrinsic_lit(cell, e):
-        if e in locked_intrinsic.get(cell, ()):
-            return True
-        return b.exactly_one_of(sources[cell][e], f"intr_{cell}_{e}")
-
-    def spread_lit(cell):
-        if cell in locked_spread:
-            return True
-        return b.exactly_one_of(spread_sources[cell], f"spread_{cell}")
-
-    intrinsic: Dict[tuple, Dict[str, Literal]] = {
-        c: {e: intrinsic_lit(c, e) for e in effects} for c in cell_set
+    covering: Dict[tuple, List[int]] = {c: [] for c in cell_set}
+    for i, (_, occ, _, _) in enumerate(placements):
+        for c in occ:
+            covering[c].append(i)
+    single_at: Dict[tuple, List[int]] = {
+        c: [i for i in covering[c] if len(placements[i][1]) == 1] for c in cell_set
     }
-    spread: Dict[tuple, Literal] = {c: spread_lit(c) for c in cell_set}
-    spread_possible = any(s is not False for s in spread.values())
+    multis = [i for i, p in enumerate(placements) if len(p[1]) > 1]
 
-    def nb(cell, d):
-        dr, dc = CARDINAL_ORDER[d]
-        q = (cell[0] + dr, cell[1] + dc)
-        return q if q in cell_set else None
+    def nbrs(cell):
+        r, c = cell
+        out = []
+        for d in ("N", "W", "E", "S"):
+            dr, dc = CARDINAL_ORDER[d]
+            q = (r + dr, c + dc)
+            if q in cell_set:
+                out.append(q)
+        return out
 
-    order = sorted(cell_set)
-    has_final: Dict[tuple, Dict[str, Literal]] = {}
+    def any_of(indices, name) -> Literal:
+        """Exact OR of mutually exclusive placement literals (they share a tile)."""
+        lits = [placements[i][0] for i in indices]
+        if any(l is True for l in lits):
+            return True
+        return b.exactly_one_of([l for l in lits if l is not False], name)
+
+    # ---- direct effects
+    gives_cache: Dict[Tuple[tuple, str], Literal] = {}
+
+    def gives_to(q, c, e) -> Literal:
+        """The plant on q lists e and is not also on c."""
+        idx = [i for i in covering[q] if e in placements[i][3]]
+        if not idx:
+            return False
+        kept = [i for i in idx if c not in placements[i][1]]
+        if len(kept) == len(idx):
+            key = (q, e)
+            if key not in gives_cache:
+                gives_cache[key] = any_of(idx, f"gives_{q}_{e}")
+            return gives_cache[key]
+        return any_of(kept, f"gives_{q}_{c}_{e}") if kept else False
+
+    direct: Dict[tuple, Dict[str, Literal]] = {
+        c: {e: b.or_([gives_to(q, c, e) for q in nbrs(c)], f"direct_{c}_{e}") for e in tracked}
+        for c in order
+    }
+
+    single_present = {c: any_of(single_at[c], f"single_{c}") for c in order}
+    tile_spreader = {c: b.and_([single_present[c], direct[c][RELAY_EFFECT]], f"spreader_{c}") for c in order}
+    multi_held: Dict[int, Dict[str, Literal]] = {}
+    multi_spreader: Dict[int, Literal] = {}
+    for i in multis:
+        lit, occ, anchor, _ = placements[i]
+        cs = sorted(occ)
+        multi_held[i] = {e: b.or_([direct[c][e] for c in cs], f"mheld_{anchor}_{i}_{e}") for e in tracked}
+        multi_spreader[i] = b.and_([lit, multi_held[i][RELAY_EFFECT]], f"mspreader_{anchor}_{i}")
+
+    unit_lits = [tile_spreader[c] for c in order] + [multi_spreader[i] for i in multis]
+    live = [l for l in unit_lits if l is not False]
+    spread_possible = bool(live) and bool(relayed)
+
+    def entity_or_tile(per_cell):
+        """A multi-cell plant's tiles all hold the plant's one set."""
+        out = {}
+        for c in order:
+            out[c] = {}
+            for e in per_cell[c]:
+                terms = [per_cell[c][e]]
+                for i in covering[c]:
+                    if i in multi_held:
+                        whole = b.or_([per_cell[x][e] for x in sorted(placements[i][1])], f"ment_{i}_{e}")
+                        terms.append(b.and_([placements[i][0], whole], f"mtile_{c}_{i}_{e}"))
+                out[c][e] = b.or_(terms, f"hold_{c}_{e}")
+        return out
+
+    def finish(has_final, regimes_used):
+        stats = {
+            "num_bools": b.num_bools, "num_constraints": b.num_constraints, "effects": len(effects),
+            "relay_tables": regimes_used, "possible_spreaders": len(live),
+            "multi_cell_units": len(multis),
+        }
+        return EffectModel(effects=effects, has_final=has_final, spread_possible=spread_possible,
+                           stats=stats, _builder=b)
 
     if not spread_possible:
-        for c in order:
-            has_final[c] = {}
-            for e in effects:
-                lits = []
-                for d in ("N", "W", "E", "S"):
-                    q = nb(c, d)
-                    if q is not None:
-                        lits.append(intrinsic[q][e])
-                has_final[c][e] = b.or_(lits, f"has_{c}_{e}")
-        stats = {"num_bools": b.num_bools, "num_constraints": b.num_constraints, "effects": len(effects)}
-        return EffectModel(effects=effects, has_final=has_final, spread_possible=False, stats=stats, _builder=b)
+        base = entity_or_tile({c: {e: direct[c][e] for e in effects} for c in order}) if multis else \
+            {c: {e: direct[c][e] for e in effects} for c in order}
+        return finish(base, [])
 
-    state: Dict[tuple, Dict[str, Literal]] = {c: {e: False for e in effects} for c in order}
-    for p in range(1, passes + 1):
-        has_visit: Dict[tuple, Dict[str, Literal]] = {}
-        push: Dict[tuple, Dict[str, Literal]] = {}
-        for c in order:
-            has_visit[c] = {}
-            push[c] = {}
-            n, w = nb(c, "N"), nb(c, "W")
-            for e in effects:
-                lits = [state[c][e]]
-                if n is not None:
-                    lits.append(push[n][e])
-                if w is not None:
-                    lits.append(push[w][e])
-                hv = b.or_(lits, f"hv{p}_{c}_{e}")
-                has_visit[c][e] = hv
-                if e == RELAY_EFFECT:
-                    push[c][e] = intrinsic[c][e]
-                else:
-                    relay = b.and_([spread[c], hv], f"relay{p}_{c}_{e}")
-                    push[c][e] = b.or_([intrinsic[c][e], relay], f"push{p}_{c}_{e}")
-        new_state: Dict[tuple, Dict[str, Literal]] = {}
-        for c in order:
-            new_state[c] = {}
-            e_, s_ = nb(c, "E"), nb(c, "S")
-            for e in effects:
-                lits = [has_visit[c][e]]
-                if e_ is not None:
-                    lits.append(push[e_][e])
-                if s_ is not None:
-                    lits.append(push[s_][e])
-                new_state[c][e] = b.or_(lits, f"end{p}_{c}_{e}")
-        state = new_state
+    # ---- which table sizes can the spreader count reach?
+    forced = sum(1 for l in unit_lits if l is True)
+    regimes = [(t, lo, hi) for t, lo, hi in relay_regimes(order)
+               if lo <= len(live) and (hi is None or hi >= forced)]
 
-    has_final = state
-    stats = {"num_bools": b.num_bools, "num_constraints": b.num_constraints, "effects": len(effects)}
-    return EffectModel(effects=effects, has_final=has_final, spread_possible=True, stats=stats, _builder=b)
+    def relay_circuit(table):
+        tile_key = {c: relay_turn_key(c, table) for c in order}
+        multi_key = {i: relay_turn_key(placements[i][2], table) for i in multis}
+        units = [("tile", c, tile_key[c]) for c in order] + [("multi", i, multi_key[i]) for i in multis]
+        units.sort(key=lambda u: u[2])
+        tile_push: Dict[tuple, Dict[str, Literal]] = {}
+        multi_push: Dict[int, Dict[str, Literal]] = {}
+
+        def pushes_into(target_cells, own, key_limit):
+            """Push literals landing on `target_cells` from neighbouring units"""
+            own_occ = placements[own][1] if own is not None else frozenset()
+            lits_by_e = {e: [] for e in relayed}
+            seen_tiles, seen_multis = set(), set()
+            for x in target_cells:
+                for q in nbrs(x):
+                    if q in target_cells:
+                        continue
+                    if q not in seen_tiles and (key_limit is None or tile_key[q] < key_limit):
+                        seen_tiles.add(q)
+                        for e in relayed:
+                            lits_by_e[e].append(tile_push[q][e])
+                    for w in covering[q]:
+                        if w not in multi_held or w == own or w in seen_multis:
+                            continue
+                        if own_occ & placements[w][1] or any(t in placements[w][1] for t in target_cells):
+                            continue
+                        if key_limit is not None and not multi_key[w] < key_limit:
+                            continue
+                        seen_multis.add(w)
+                        for e in relayed:
+                            lits_by_e[e].append(multi_push[w][e])
+            return lits_by_e
+
+        for kind, u, key in units:
+            if kind == "tile":
+                c = u
+                tile_push[c] = {}
+                earlier = pushes_into((c,), None, key) if tile_spreader[c] is not False else None
+                for e in relayed:
+                    if earlier is None:
+                        tile_push[c][e] = False
+                        continue
+                    before = b.or_([direct[c][e]] + earlier[e], f"before{table}_{c}_{e}")
+                    tile_push[c][e] = b.and_([tile_spreader[c], before], f"push{table}_{c}_{e}")
+            else:
+                i = u
+                multi_push[i] = {}
+                occ = tuple(sorted(placements[i][1]))
+                earlier = pushes_into(occ, i, key) if multi_spreader[i] is not False else None
+                for e in relayed:
+                    if earlier is None:
+                        multi_push[i][e] = False
+                        continue
+                    before = b.or_([multi_held[i][e]] + earlier[e], f"mbefore{table}_{i}_{e}")
+                    multi_push[i][e] = b.and_([multi_spreader[i], before], f"mpush{table}_{i}_{e}")
+
+        final = {}
+        for c in order:
+            into = pushes_into((c,), None, None)
+            final[c] = {e: b.or_([direct[c][e]] + into[e], f"final{table}_{c}_{e}") for e in relayed}
+        return final
+
+    circuits = [(t, relay_circuit(t)) for t, _, _ in regimes]
+    if len(regimes) == 1:
+        chosen = circuits[0][1]
+    else:
+        count = sum(1 if l is True else l for l in live)
+        indicators = []
+        for t, lo, hi in regimes:
+            ind = b.new_bool(f"relay_table_{t}")
+            model.Add(count >= lo).OnlyEnforceIf(ind)
+            if hi is not None:
+                model.Add(count <= hi).OnlyEnforceIf(ind)
+            indicators.append(ind)
+        model.AddExactlyOne(indicators)
+        b.num_constraints += 2 * len(regimes) + 1
+        chosen = {
+            c: {e: b.or_([b.and_([ind, circ[c][e]], f"sel{t}_{c}_{e}")
+                          for ind, (t, circ) in zip(indicators, circuits)], f"has_{c}_{e}")
+                for e in relayed}
+            for c in order
+        }
+
+    per_cell = {c: {e: (direct[c][e] if e == RELAY_EFFECT else chosen[c][e]) for e in effects} for c in order}
+    has_final = entity_or_tile(per_cell) if multis else per_cell
+    return finish(has_final, [t for t, _, _ in regimes])
 
 
 def add_effect_score_terms(

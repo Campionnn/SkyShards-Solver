@@ -580,7 +580,7 @@ def solve_generic(
     unrestricted_cells: Optional[set] = None
     spread_possible = False
     if ctx.active:
-        # Slots never relay, so only crops and locked plants can.
+        # Slots give nothing, so only crops and locked plants count.
         plant_names = {c.name for c in filtered_crops}
         plant_names |= {l["name"] for l in locks_as_dicts}
         spread_possible = any(BUFF_TABLE[n].spreads for n in plant_names if n in BUFF_TABLE)
