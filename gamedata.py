@@ -4,7 +4,8 @@
 import json
 import os
 
-# Load default crop and mutation data from JSON file
+from solver.effects import EFFECT_META, default_buff_crops
+
 data_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data.json")
 with open(data_file, "r") as f:
     _RAW_DATA = json.load(f)
@@ -65,7 +66,6 @@ for mut_id, mut_data in _RAW_DATA["mutations"].items():
 
     _mutations_list.append(entry)
 
-from solver.effects import EFFECT_META, default_buff_crops  # noqa: E402
 
 DEFAULT_DATA = {
     "crops": _crops_list,

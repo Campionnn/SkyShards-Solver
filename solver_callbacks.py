@@ -79,18 +79,15 @@ class SolverProgressCallback(cp_model.CpSolverSolutionCallback):
     def _background_updater(self):
         """Background thread that periodically sends updates and checks cancellation."""
         while not self._stop_event.is_set():
-            # Check for cancellation
             if self.job_manager.is_cancellation_requested(self.job_id):
                 self.was_cancelled = True
                 self.StopSearch()
                 break
 
-            # Send update if we have a solution
             with self._lock:
                 if self.best_solution_values is not None:
                     self._send_progress_update()
 
-            # Wait for next interval or stop signal
             self._stop_event.wait(timeout=self.update_interval)
 
     def _send_progress_update(self):
@@ -100,10 +97,8 @@ class SolverProgressCallback(cp_model.CpSolverSolutionCallback):
 
         current_time = time.time()
 
-        # Extract preview data
         preview_placements, preview_mutations, preview_cells_used = self._extract_preview()
 
-        # Create descriptive activity message
         n_muts = len(preview_mutations) if preview_mutations else 0
         activity = f"Found {self.solutions_found} solutions, best has {n_muts} mutations"
         if self.objective_scales is not None and self.best_objective is not None:
@@ -121,7 +116,6 @@ class SolverProgressCallback(cp_model.CpSolverSolutionCallback):
         elif not self.is_maximizing:
             activity = f"Found {self.solutions_found} solutions, best uses {preview_cells_used or 0} cells"
 
-        # Calculate progress percentage
         percentage = self._calculate_percentage()
 
         progress = JobProgress(
@@ -143,7 +137,6 @@ class SolverProgressCallback(cp_model.CpSolverSolutionCallback):
         """Called when the solver finds a new solution."""
         self.solutions_found += 1
 
-        # Capture the solution values (thread-safe)
         with self._lock:
             self._capture_solution()
             if self.solutions_found == 1:
@@ -152,10 +145,8 @@ class SolverProgressCallback(cp_model.CpSolverSolutionCallback):
                 except Exception:
                     pass
 
-        # Signal that we have a new solution
         self._has_new_solution.set()
 
-        # Check for cancellation
         if self.job_manager.is_cancellation_requested(self.job_id):
             self.was_cancelled = True
             self.StopSearch()
@@ -166,7 +157,6 @@ class SolverProgressCallback(cp_model.CpSolverSolutionCallback):
         if not self.crop_vars or not self.mutation_vars:
             return
 
-        # Update best objective/bound
         self.best_objective = self.ObjectiveValue()
         self.best_bound = self.BestObjectiveBound()
 
@@ -198,7 +188,6 @@ class SolverProgressCallback(cp_model.CpSolverSolutionCallback):
         crop_values = self.best_solution_values.get('crop_vars', {})
         mutation_values = self.best_solution_values.get('mutation_vars', {})
 
-        # Extract placements from solver solution
         placements = []
         used_cells: set = set()
         for crop_name, positions in crop_values.items():
@@ -211,12 +200,10 @@ class SolverProgressCallback(cp_model.CpSolverSolutionCallback):
                         "size": size,
                         "locked": False
                     })
-                    # Track cells occupied by this crop
                     for dr in range(size):
                         for dc in range(size):
                             used_cells.add((pos[0] + dr, pos[1] + dc))
 
-        # Add locked placements with locked flag
         for lock in self.locked_placements:
             lock_pos = lock["position"]
             lock_size = lock["size"]
@@ -231,7 +218,6 @@ class SolverProgressCallback(cp_model.CpSolverSolutionCallback):
                 for dc in range(lock_size):
                     used_cells.add((pos_tuple[0] + dr, pos_tuple[1] + dc))
 
-        # Extract mutations and mark their cells as used
         mutations = []
         for mut_name, positions in mutation_values.items():
             size = self.mutation_sizes.get(mut_name, 1)
@@ -246,16 +232,15 @@ class SolverProgressCallback(cp_model.CpSolverSolutionCallback):
                         for dc in range(size):
                             used_cells.add((pos[0] + dr, pos[1] + dc))
 
-        # Count cells used (solver cells + locked cells)
         cells_used = len(used_cells)
 
         return placements, mutations, cells_used
 
     def _calculate_percentage(self) -> Optional[float]:
-        """Calculate progress percentage based on the maximum of:"""
+        """Calculate progress percentage based on the maximum of:
+        1."""
         percentages = []
 
-        # Calculate objective-based percentage
         try:
             if self.best_objective is not None and self.best_bound is not None:
                 objective = self.best_objective
@@ -280,13 +265,11 @@ class SolverProgressCallback(cp_model.CpSolverSolutionCallback):
         except Exception:
             pass
 
-        # Calculate time-based percentage
         if self.time_limit is not None and self.time_limit > 0:
             elapsed = time.time() - self.start_time
             time_progress = min(100.0, max(0.0, (elapsed / self.time_limit) * 100))
             percentages.append(time_progress)
 
-        # Return the maximum of all calculated percentages
         if percentages:
             return round(max(percentages), 1)
 

@@ -66,7 +66,8 @@ EFFECT_META = {
 
 @dataclass(frozen=True)
 class PlantBuffs:
-    """What one plant kind contributes to propagation (what it pushes; it"""
+    """What one plant kind contributes to propagation (what it pushes; it
+    never holds these itself)."""
     name: str
     size: int
     intrinsic: FrozenSet[str]
@@ -87,7 +88,8 @@ def plant_buffs_from_def(d) -> PlantBuffs:
 
 
 def build_buff_table(crop_defs: Iterable = (), mutation_defs: Iterable = ()) -> Dict[str, PlantBuffs]:
-    """name -> PlantBuffs for every crop and mutation definition (first"""
+    """name -> PlantBuffs for every crop and mutation definition (first
+    definition of a name wins)."""
     table: Dict[str, PlantBuffs] = {}
     for group in (crop_defs, mutation_defs):
         for d in group or []:
@@ -114,7 +116,8 @@ RELAY_TABLE_LOAD_FACTOR = 0.75
 
 
 def relay_table_size(spreader_count: int) -> int:
-    """HashMap capacity holding `spreader_count` entries: 16, doubled while"""
+    """HashMap capacity holding `spreader_count` entries: 16, doubled while
+    the count exceeds 75% of it (resizes at 13, 25, 49, 97)."""
     table = RELAY_TABLE_INITIAL
     while spreader_count > RELAY_TABLE_LOAD_FACTOR * table:
         table *= 2
@@ -128,7 +131,8 @@ def relay_turn_key(position, table: int) -> Tuple[int, int, int]:
 
 
 def relay_regimes(cells: Iterable) -> List[Tuple[int, int, Optional[int]]]:
-    """Every (table, min_count, max_count) whose turn order can differ on"""
+    """Every (table, min_count, max_count) whose turn order can differ on
+    these cells."""
     max_key = max((RELAY_HASH_COLUMN_FACTOR * c + r for r, c in cells), default=0)
     out: List[Tuple[int, int, Optional[int]]] = []
     table, lo = RELAY_TABLE_INITIAL, 0
@@ -176,7 +180,8 @@ class EffectSimulation:
 
 
 def effective_effects(raw: Iterable[str]) -> FrozenSet[str]:
-    """The set that matters for scoring: immunity strips negatives, improved"""
+    """The set that matters for scoring: immunity strips negatives, improved
+    variants hide their base version."""
     eff = set(raw)
     if "immunity" in eff:
         eff -= NEGATIVE_EFFECTS
@@ -234,6 +239,7 @@ def simulate_effects(
                     seen.append(q)
         return seen
 
+    # 1. Direct effects: only listed buffs, so order is free.
     for plant in plants:
         if plant.is_mutation_slot or not plant.buffs.intrinsic:
             continue
@@ -257,7 +263,8 @@ def simulate_effects(
 
 
 def resolve_effect_weights(targets: Sequence, request_weights: Optional[Dict[str, float]]) -> Dict[str, Dict[str, float]]:
-    """Per-target effect weights: the request-level dict, overridden key-by-key"""
+    """Per-target effect weights: the request-level dict, overridden key-by-key
+    by each MutationGoal's own `effect_weights`."""
     base = {k: float(v) for k, v in (request_weights or {}).items()}
     out: Dict[str, Dict[str, float]] = {}
     for t in targets or []:
@@ -287,7 +294,10 @@ def needed_effects(
     buff_table: Optional[Dict[str, PlantBuffs]] = None,
     required: Iterable[str] = (),
 ) -> FrozenSet[str]:
-    """Closure of effects the model must track: every weighted effect and every"""
+    """Closure of effects the model must track: every weighted effect and every
+    effect in `required` (godseed eligibility), plus `immunity` if any
+    negative is weighted (it can cancel them), plus the improved twin of any
+    weighted base effect (it can hide it)."""
     carried: Optional[Set[str]] = None
     if buff_table is not None:
         carried = set()
@@ -318,7 +328,11 @@ def prune_free_buff_set(
     other_plant_names: Iterable[str] = (),
     required_effects: Iterable[str] = (),
 ) -> List[str]:
-    """Keep only free crops that can possibly raise the score: relays, carriers"""
+    """Keep only free crops that can possibly raise the score: relays, carriers
+    of a positively-weighted (or godseed-required) effect, or immunity
+    carriers when a negatively-weighted effect can actually appear on the
+    grid (carried by a required crop, a target, a lock, or a free crop kept
+    for its positive effect - `other_plant_names` lists the non-free plants)."""
     positive: Set[str] = set(required_effects)
     negative: Set[str] = set()
     for w in (weights_by_target or {}).values():
@@ -383,7 +397,9 @@ def score_layout_with_effects(
     buff_table: Dict[str, PlantBuffs],
     detailed: bool = True,
 ) -> ScoreBreakdown:
-    """Exact layout score: competition-aware spawn rate over maximize targets"""
+    """Exact layout score: competition-aware spawn rate over maximize targets
+    (see spawn.score_layout) plus the weighted effects each target slot's
+    mutation would hold, in slot units of that mutation."""
     by_name = {name_of(m): m for m in all_mutations}
     maximize = {_get(t, "mutation") for t in targets or [] if _get(t, "maximize", False)}
     target_names = {_get(t, "mutation") for t in targets or []}
@@ -443,7 +459,8 @@ def slots_all_eligible(
     cells, placements, mutation_slots, mutation_defs: Dict,
     buff_table: Optional[Dict[str, PlantBuffs]] = None,
 ) -> bool:
-    """Every mutation slot still has its requirements met by the placements"""
+    """Every mutation slot still has its requirements met by the placements
+    (crop counts, or the held-effects rule for godseed)."""
     cell_set = {tuple(c) for c in cells}
     owner = build_cell_owner(placements)
     sim = None
@@ -474,7 +491,10 @@ def prune_valueless_placements(
     mutation_defs: Dict,
     free_names: Optional[Iterable[str]] = None,
 ) -> Tuple[List[Dict], ScoreBreakdown]:
-    """Drop every non-locked placement whose removal does not lower the exact"""
+    """Drop every non-locked placement whose removal does not lower the exact
+    score, does not lower the spawn rate of any slot (fixed-count slots earn
+    no score but still want their full spawn weight), and keeps every slot
+    eligible."""
     free = set(free_names or ())
 
     def sort_key(p):

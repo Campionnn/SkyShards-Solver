@@ -2,6 +2,7 @@
 # SkyShards local solver. See LICENSE.
 
 import json
+import os
 import threading
 import urllib.error
 import urllib.request
@@ -12,6 +13,18 @@ import config
 ENABLED = config.CONTRIBUTE
 URL = config.CONTRIBUTE_URL
 TIMEOUT_SECONDS = 20.0
+
+
+def _user_agent() -> str:
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "VERSION"), encoding="utf-8") as f:
+            version = f.read().strip()
+    except OSError:
+        version = "dev"
+    return f"SkyShards-LocalSolver/{version} (+https://github.com/Campionnn/SkyShards-Solver)"
+
+
+USER_AGENT = _user_agent()
 
 FULL_GRID_CELLS = 100
 
@@ -51,7 +64,8 @@ def offer(params: Dict, result: Dict) -> None:
 
 def _send(body: Dict) -> None:
     data = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(URL, data=data, headers={"Content-Type": "application/json"}, method="POST")
+    headers = {"Content-Type": "application/json", "User-Agent": USER_AGENT}
+    req = urllib.request.Request(URL, data=data, headers=headers, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT_SECONDS) as resp:
             payload = json.loads(resp.read().decode("utf-8") or "{}")

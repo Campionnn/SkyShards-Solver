@@ -64,7 +64,9 @@ SCALING_QUIRKS: Dict[str, Dict] = {
 
 
 def scaling_requirement(mut) -> Optional[Tuple[str, int]]:
-    """The (crop, base requirement count) that drives this mutation's weight past"""
+    """The (crop, base requirement count) that drives this mutation's weight past
+    the minimum eligible value, or None for the common case where eligibility
+    alone already means the listed spawn_weight (see SCALING_QUIRKS)."""
     quirk = SCALING_QUIRKS.get(name_of(mut))
     if not quirk:
         return None
@@ -106,7 +108,10 @@ def solver_multiplicity_cap(mut, ring: int) -> int:
 
 
 def multiplicity(mut, adjacent_counts: Dict[str, int], special_eligible: Optional[bool] = None) -> int:
-    """How many multiplicity units this location has earned toward this"""
+    """How many multiplicity units this location has earned toward this
+    mutation's weight - 1 as soon as every requirement is met at least once,
+    and higher only for a mutation with a scaling quirk (see SCALING_QUIRKS),
+    capped at the k that already reaches the listed spawn_weight."""
     if requires_zero_adjacent(mut):
         return 1 if not any(adjacent_counts.values()) else 0
 
@@ -136,7 +141,8 @@ def pool_denominator(pool_weights: Iterable[int]) -> int:
 
 
 def spawn_probability(target: str, pool: Dict[str, int]) -> float:
-    """Chance that `target` is the pick at a location, given the pool of effective"""
+    """Chance that `target` is the pick at a location, given the pool of effective
+    weights (already multiplied by multiplicity) keyed by mutation name."""
     if not pool:
         return 0.0
     return pool.get(target, 0) / pool_denominator(pool.values())

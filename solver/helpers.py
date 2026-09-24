@@ -63,14 +63,12 @@ def can_mutation_be_satisfied_at_position(
     if mut.requires_zero_adjacent:
         return True
 
-    # Check each requirement can be satisfied
     for req_crop in mut.requirements:
         crop_name = req_crop.crop
 
         if crop_name not in crop_occupied_by_pos:
             return False  # Required crop doesn't exist
 
-        # Count maximum possible adjacent cells from this crop type
         max_adjacent = 0
         for crop_pos, crop_cells in crop_occupied_by_pos[crop_name].items():
             overlap = len(crop_cells & adjacent_cells)
@@ -112,7 +110,6 @@ def compute_crop_and_mutation_positions(
     crop_valid_positions: Dict[str, List[tuple]] = {}
     for crop in filtered_crops:
         all_valid = get_valid_placements(cells, crop.size)
-        # Filter out positions that overlap with locked cells
         if locked_cells:
             non_overlapping = []
             for pos in all_valid:
@@ -147,7 +144,6 @@ def compute_crop_and_mutation_positions(
 
     for mut in req.mutations:
         all_valid = get_valid_placements(cells, mut.size)
-        # Filter out positions that overlap with locked cells
         if locked_cells:
             valid_positions = []
             for pos in all_valid:

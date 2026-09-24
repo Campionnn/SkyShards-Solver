@@ -142,7 +142,8 @@ class EffectModel:
         return out
 
     def slot_effective(self, plant_cells: Sequence[tuple], effect: str) -> Literal:
-        """Effective (scored) literal for one effect of a plant at `plant_cells`:"""
+        """Effective (scored) literal for one effect of a plant at `plant_cells`:
+        immunity cancels negatives, improved variants hide their base."""
         key = (tuple(sorted(plant_cells)), effect)
         if key in self._eff_cache:
             return self._eff_cache[key]
@@ -175,7 +176,8 @@ def build_effect_model(
     locked_placements: Optional[Sequence[Dict]],
     needed: Iterable[str],
 ) -> EffectModel:
-    """Encode direct effects plus the one-turn-per-spreader relay for the effects"""
+    """Encode direct effects plus the one-turn-per-spreader relay for the effects
+    in `needed`, and return the final held-set literals per cell."""
     b = _Builder(model)
     effects = tuple(sorted(needed))
     if not effects:
@@ -305,7 +307,9 @@ def build_effect_model(
         multi_push: Dict[int, Dict[str, Literal]] = {}
 
         def pushes_into(target_cells, own, key_limit):
-            """Push literals landing on `target_cells` from neighbouring units"""
+            """Push literals landing on `target_cells` from neighbouring units
+            (not `own`, not overlapping it) whose turn key is below key_limit
+            (None: every neighbour)."""
             own_occ = placements[own][1] if own is not None else frozenset()
             lits_by_e = {e: [] for e in relayed}
             seen_tiles, seen_multis = set(), set()
@@ -391,7 +395,8 @@ def add_effect_score_terms(
     weights_by_target: Dict[str, Dict[str, float]],
     mutation_defs: Dict,
 ) -> List[Tuple[int, cp_model.IntVar]]:
-    """Objective terms `(coefficient, literal)` for the weighted effects each"""
+    """Objective terms `(coefficient, literal)` for the weighted effects each
+    target mutation would hold at each of its candidate positions."""
     b = effect_model._builder
     terms: List[Tuple[int, cp_model.IntVar]] = []
     if not effect_model.effects:
@@ -433,7 +438,9 @@ def add_special_eligibility_constraints(
     mutation_vars: Dict[str, Dict[tuple, cp_model.IntVar]],
     mutation_occupied_cells: Dict[str, Dict[tuple, set]],
 ) -> int:
-    """Godseed-style eligibility: a slot variable may only be 1 if the slot's"""
+    """Godseed-style eligibility: a slot variable may only be 1 if the slot's
+    cells (which, like every slot, push nothing themselves) end up holding
+    every effect in the mutation's required set."""
     b = effect_model._builder
     forced_off = 0
     for mut_name, required in SPECIAL_EFFECT_SETS.items():

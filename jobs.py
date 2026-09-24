@@ -164,7 +164,6 @@ class JobManager:
         """Get the position of a job in the queue."""
         with self._lock:
             with self._get_connection() as conn:
-                # Get the job's created_at time
                 cursor = conn.execute(
                     "SELECT created_at, status FROM jobs WHERE id = ?",
                     (job_id,)
@@ -176,7 +175,6 @@ class JobManager:
 
                 job_created_at = row["created_at"]
 
-                # Count how many queued jobs are ahead
                 cursor = conn.execute(
                     "SELECT COUNT(*) as count FROM jobs WHERE status = ? AND created_at < ?",
                     (JobStatus.QUEUED.value, job_created_at)
@@ -250,7 +248,6 @@ class JobManager:
         """Request cancellation of a job."""
         with self._lock:
             with self._get_connection() as conn:
-                # Check current status
                 cursor = conn.execute(
                     "SELECT status FROM jobs WHERE id = ?",
                     (job_id,)

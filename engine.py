@@ -53,17 +53,14 @@ from solver import (
 from gamedata import DEFAULT_DATA, DEFAULT_EFFECT_WEIGHTS
 
 
-# Load default priorities from JSON file
 def load_default_priorities() -> Dict[str, int]:
     """Load the default priorities from default_priorities.json."""
     default_priorities_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "default_priorities.json")
     try:
         with open(default_priorities_path, 'r') as f:
             return json.load(f)
-    except FileNotFoundError:
-        return {}
-    except json.JSONDecodeError:
-        # If file is malformed, return empty dict
+    except (FileNotFoundError, json.JSONDecodeError):
+        # Missing or malformed: every priority defaults to 0.
         return {}
 
 
@@ -86,7 +83,9 @@ def with_default_effect_weights(params: Dict) -> Dict:
 
 
 def clamp_client_time_limit(time_limit: Optional[float], ceiling: Optional[float] = None) -> Optional[float]:
-    """Sanitise a time limit that came from a client: None passes through"""
+    """Sanitise a time limit that came from a client: None passes through
+    (meaning "use the default budget"), anything else is coerced to a positive
+    finite float."""
     if time_limit is None:
         return None
     try:
@@ -178,21 +177,17 @@ def get_required_mutations_and_crops(
     extra_crop_names: Optional[List[str]] = None,
 ) -> tuple:
     """Compute the set of mutations and crops needed for the given targets."""
-    # Build mutation lookup from raw data
     mutation_data_dict = {m['name']: m for m in all_mutations_data}
 
-    # Get base crop names (crops that aren't mutations)
     crop_names = {c.name for c in all_crops}
 
     # Only include target mutations
     target_mutation_names = [t.mutation for t in targets]
 
-    # Validate targets exist
     for mut_name in target_mutation_names:
         if mut_name not in mutation_data_dict:
             raise HTTPException(400, f"Unknown mutation '{mut_name}' in targets")
 
-    # Create MutationDefinition objects only for target mutations
     filtered_mutations = [
         MutationDefinition(
             name=m['name'],
@@ -216,7 +211,6 @@ def get_required_mutations_and_crops(
         if m['name'] in target_mutation_names
     ]
 
-    # Collect crops needed by target mutations
     required_crops = set()
     mutations_used_as_crops = set()
 
@@ -236,7 +230,6 @@ def get_required_mutations_and_crops(
         elif name in mutation_data_dict:
             mutations_used_as_crops.add(name)
 
-    # Filter crops to only required ones
     filtered_crops = [c for c in all_crops if c.name in required_crops]
 
     for mut_name in sorted(mutations_used_as_crops):
@@ -261,20 +254,17 @@ def validate_request(req: GenericSolveRequest) -> tuple:
     crop_defs = {c.name: c for c in req.crops}
     mutation_defs = {m.name: m for m in req.mutations}
 
-    # Validate crop references in mutations
     for mut in req.mutations:
         for r in mut.requirements:
             if r.crop not in crop_defs:
                 raise HTTPException(400, f"Unknown crop '{r.crop}' in mutation '{mut.name}'")
 
-    # Validate targets reference valid mutations
     for t in req.targets:
         if t.mutation not in mutation_defs:
             raise HTTPException(400, f"Unknown mutation '{t.mutation}' in targets")
         if not t.maximize and t.count is None:
             raise HTTPException(400, f"Target for '{t.mutation}' must have count or maximize=true")
 
-    # Separate targets into maximize and count-based
     maximize_mutations = [t.mutation for t in req.targets if t.maximize]
     target_mutations = {t.mutation: t.count for t in req.targets if not t.maximize and t.count is not None}
 
@@ -294,7 +284,6 @@ def validate_locked_placements(
     if not locks:
         return set()
 
-    # Build lookup dicts for validation
     crop_lookup = {c.name: c.size for c in all_crops}
     mutation_lookup = {m["name"]: m["size"] for m in all_mutations_data}
 
@@ -306,7 +295,6 @@ def validate_locked_placements(
         provided_size = lock.size
         pos = tuple(lock.position)
 
-        # Check if crop/mutation exists
         expected_size = None
         if name in crop_lookup:
             expected_size = crop_lookup[name]
@@ -315,17 +303,14 @@ def validate_locked_placements(
         else:
             raise HTTPException(400, f"Lock #{i+1}: Unknown crop/mutation '{name}'")
 
-        # Check if provided size matches definition
         if expected_size != provided_size:
             raise HTTPException(
                 400,
                 f"Lock #{i+1}: '{name}' has size {expected_size} but lock specifies size {provided_size}"
             )
 
-        # Get cells occupied by this lock
         occupied = set(get_crop_cells(pos, provided_size))
 
-        # Check all cells are in available cells
         invalid_cells = occupied - cell_set
         if invalid_cells:
             raise HTTPException(
@@ -333,7 +318,6 @@ def validate_locked_placements(
                 f"Lock #{i+1} ('{name}' at {list(pos)}) uses cells not in available cells: {sorted([list(c) for c in invalid_cells])}"
             )
 
-        # Check for overlaps with previous locks
         for j, prev_occupied in enumerate(locked_cells_by_placement):
             overlap = occupied & prev_occupied
             if overlap:
@@ -423,7 +407,8 @@ def expected_spawns_per_tick(
 
 
 def annotate_result(result: Dict, cells: List[tuple], req: GenericSolveRequest, ctx: EffectContext) -> Dict:
-    """Attach the exact score, per-spot effects and rate figures to a result"""
+    """Attach the exact score, per-spot effects and rate figures to a result
+    dict."""
     placements = result.get("placements", [])
     mutations = result.get("mutations", [])
     bd = score_layout_with_effects(
@@ -442,7 +427,9 @@ def annotate_result(result: Dict, cells: List[tuple], req: GenericSolveRequest, 
 
 @dataclass
 class PreparedProblem:
-    """A solve request normalised the way the solver sees it:"""
+    """A solve request normalised the way the solver sees it:
+    default crops with priorities applied, the effect context, and the request
+    rebuilt with only the crops/mutations this problem needs."""
     req: GenericSolveRequest
     default_crops: List[CropDefinition]   # every base crop, priorities applied
     ctx: EffectContext
@@ -454,7 +441,7 @@ class PreparedProblem:
 
 
 def prepare_problem(req: GenericSolveRequest) -> PreparedProblem:
-    """Normalise a request into a PreparedProblem (see class doc). Raises"""
+    """Normalise a request into a PreparedProblem (see class doc)."""
     default_crops = [CropDefinition(**c) for c in DEFAULT_DATA['crops']]
 
     for crop in default_crops:
@@ -486,7 +473,6 @@ def prepare_problem(req: GenericSolveRequest) -> PreparedProblem:
         extra_crop_names=ctx.free_names,
     )
 
-    # Create a new request with populated crops/mutations
     prepared_req = GenericSolveRequest(
         cells=req.cells,
         priorities=req.priorities,
@@ -531,14 +517,11 @@ def solve_generic(
     assert req.crops is not None
     assert req.mutations is not None
 
-    # Check if locks are present
     has_locks = req.locks is not None and len(req.locks) > 0
 
-    # Validate request and build lookups
     crop_defs, mutation_defs, maximize_mutations, target_mutations, cells, cell_set = validate_request(req)
     has_maximize = len(maximize_mutations) > 0
 
-    # Validate locked placements if present
     locked_cells = set()
     locked_crop_positions: Dict[str, List[tuple]] = {}
     locks_as_dicts: List[Dict] = []
@@ -595,10 +578,8 @@ def solve_generic(
                             if q in cell_set:
                                 unrestricted_cells.add(q)
 
-    # Create CP model
     model = cp_model.CpModel()
 
-    # Create decision variables
     crop_vars, mutation_vars = create_decision_variables(
         model, req, filtered_crops, crop_valid_positions, crop_occupied_by_pos,
         mutation_feasible_positions, all_mutation_adjacent_cells,
@@ -613,7 +594,6 @@ def solve_generic(
             model, locks_as_dicts, crop_vars, crop_occupied_by_pos, crop_defs, mutation_defs
         )
 
-    # Build pre-computed data structures for constraints
     crop_occupied_cells: Dict[str, Dict[tuple, set]] = {
         crop_name: {pos: occ_cells for pos, occ_cells in pos_cells.items() if pos in crop_vars.get(crop_name, {})}
         for crop_name, pos_cells in crop_occupied_by_pos.items()
@@ -732,7 +712,6 @@ def solve_generic(
 
     solver, status = solve_standard(model, unified_budget, callback=standard_callback)
 
-    # Check if solver was cancelled but has a partial solution
     if standard_callback and standard_callback.was_cancelled and standard_callback.best_solution_values:
         use_captured_solution = True
         best_solver_values = standard_callback.best_solution_values
@@ -741,7 +720,6 @@ def solve_generic(
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         raise HTTPException(503, "No solution found")
 
-    # Extract results
     placements, mutations_result, used_cells = extract_results(
         crop_vars, mutation_vars, crop_defs, req, use_captured_solution, best_solver_values,
         solver if not use_captured_solution else None
@@ -807,13 +785,13 @@ def run_job(
     job_manager,
     allow_client_time_limit: bool = False,
 ) -> Dict:
-    """Greenhouse solve for the job worker (worker.py), reporting progress"""
+    """Greenhouse solve for the job worker (worker.py), reporting progress
+    through job_manager."""
     from solver_callbacks import update_job_phase
 
     start_time = time.time()
     request_type = request_params.get("_request_type", "greenhouse")
 
-    # Remove internal fields before processing
     params = {k: v for k, v in request_params.items() if not k.startswith("_")}
     client_time_limit = params.pop("time_limit", None)
     time_limit = clamp_client_time_limit(client_time_limit) if allow_client_time_limit else None

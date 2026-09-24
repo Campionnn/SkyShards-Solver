@@ -59,19 +59,15 @@ class JobWorker:
         """Main polling loop that checks for new jobs."""
         while not self._shutdown.is_set():
             try:
-                # Check how many workers are available
                 with self._lock:
                     active_count = len(self._active_jobs)
 
                 if active_count < self.num_workers:
-                    # Try to get next job
                     job = self.job_manager.get_next_queued_job()
 
                     if job is not None:
-                        # Mark as running before submitting
                         self.job_manager.update_status(job.id, JobStatus.RUNNING)
 
-                        # Submit to thread pool
                         if self._executor is not None:
                             cancel_event = threading.Event()
                             with self._lock:
@@ -79,14 +75,11 @@ class JobWorker:
 
                             self._executor.submit(self._process_job, job, cancel_event)
 
-                # Also run cleanup periodically
                 self.job_manager.cleanup_expired()
 
             except Exception as e:
-                # Log but don't crash the worker loop
                 print(f"Worker loop error: {e}")
 
-            # Wait before next poll
             self._shutdown.wait(timeout=self.poll_interval)
 
     def _process_job(self, job: Job, cancel_event: threading.Event) -> None:
@@ -94,7 +87,6 @@ class JobWorker:
         start_time = time.time()
 
         try:
-            # Update progress to show we're starting
             update_job_phase(
                 self.job_manager,
                 job.id,
@@ -106,7 +98,6 @@ class JobWorker:
             if self.job_manager.is_cancelled(job.id):
                 return
 
-            # Run the solver
             result = self.solver_func(job.request_params, job.id, self.job_manager)
 
             if self.job_manager.is_cancellation_requested(job.id):
@@ -122,11 +113,9 @@ class JobWorker:
                     self.job_manager.complete_cancelled_job(job.id, None)
                 return
 
-            # Mark as completed
             self.job_manager.complete_job(job.id, result)
 
         except Exception as e:
-            # Mark as failed with error details
             error_msg = f"{type(e).__name__}: {str(e)}"
             if hasattr(e, '__traceback__'):
                 tb = traceback.format_exception(type(e), e, e.__traceback__)
@@ -135,7 +124,6 @@ class JobWorker:
             self.job_manager.fail_job(job.id, error_msg)
 
         finally:
-            # Remove from active jobs
             with self._lock:
                 self._active_jobs.pop(job.id, None)
 

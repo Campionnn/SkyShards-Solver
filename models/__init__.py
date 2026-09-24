@@ -29,5 +29,4 @@ __all__ = [
     "JobSubmitRequest",
     "JobSubmitResponse",
     "JobStatusResponse",
-    # Skyshards
 ]

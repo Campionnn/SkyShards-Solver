@@ -55,7 +55,6 @@ def create_decision_variables(
             for pos in useful_positions
         }
 
-    # Create mutation variables
     mutation_vars: Dict[str, Dict[tuple, cp_model.IntVar]] = {}
     for mut in req.mutations:
         mutation_vars[mut.name] = {
@@ -116,7 +115,6 @@ def add_cell_usage_constraints(
     if locked_cells is None:
         locked_cells = set()
 
-    # Exclude locked cells from the constraint tracking
     effective_cells = [c for c in cells if c not in locked_cells]
     cell_usage: Dict[tuple, List[cp_model.IntVar]] = {c: [] for c in effective_cells}
 
@@ -172,7 +170,6 @@ def add_mutation_eligibility_constraints(
             scaling = scaling_requirement(mut) if chain is not None else None
             scaling_crop = scaling[0] if scaling else None
 
-            # Handle requires_zero_adjacent for lonelily
             if mut.requires_zero_adjacent:
                 for crop_name, positions in crop_vars.items():
                     index = crop_cell_index[crop_name]
@@ -181,7 +178,6 @@ def add_mutation_eligibility_constraints(
                         adjacent_positions.update(index.get(cell, ()))
                     for crop_pos in adjacent_positions:
                         model.AddAtMostOne([e_var, positions[crop_pos]])
-                # Also check locked placements
                 for crop_name, locked_list in locked_crop_info.items():
                     for locked_pos, locked_size in locked_list:
                         locked_cells = set(get_crop_cells(locked_pos, locked_size))
@@ -194,7 +190,6 @@ def add_mutation_eligibility_constraints(
                 crop_name = req_crop.crop
                 required_count = req_crop.count
 
-                # Calculate fixed contribution from locked placements
                 fixed_contribution = 0
                 if crop_name in locked_crop_info:
                     for locked_pos, locked_size in locked_crop_info[crop_name]:
@@ -219,14 +214,12 @@ def add_mutation_eligibility_constraints(
                     )
                     continue
 
-                # Build constraint based on fixed + variable contributions
                 if fixed_contribution >= required_count:
                     pass
                 elif not overlap_by_pos:
                     # No variable contributions and fixed is insufficient
                     model.Add(e_var == 0)
                 else:
-                    # Combine fixed and variable contributions
                     crop_positions = crop_vars[crop_name]
                     model.Add(
                         sum(crop_positions[crop_pos] * count for crop_pos, count in overlap_by_pos.items())
@@ -277,7 +270,9 @@ def collect_base_terms(
     mutation_defs: Optional[Dict] = None,
     fixed_count_mutations: Optional[Iterable[str]] = None,
 ) -> Tuple[List[Tuple[int, cp_model.IntVar]], bool]:
-    """Raw (un-normalised) spawn-rate objective terms for the maximize targets:"""
+    """Raw (un-normalised) spawn-rate objective terms for the maximize targets:
+    `(coefficient, literal)` pairs on the RATE_SCALE integer scale, where one
+    full-rate slot of a weight-w mutation is worth `w * RATE_SCALE / 100`."""
     defs = mutation_defs or {}
     chains = mutation_chain_vars or {}
     per_position: List[Tuple[List[cp_model.IntVar], List[int]]] = []
@@ -416,7 +411,7 @@ def add_decision_strategy(
     mutation_vars: Dict[str, Dict[tuple, cp_model.IntVar]],
     effects_active: bool = False,
 ) -> None:
-    """Add a centre-out decision strategy for pure fixed-count mode. Skipped for"""
+    """Add a centre-out decision strategy for pure fixed-count mode."""
     if has_maximize or effects_active or not cells:
         return
 
@@ -455,9 +450,7 @@ def apply_locked_placements(
         pos = tuple(lock["position"])
         size = lock["size"]
 
-        # Check if this is a crop that has decision variables
         if name in crop_vars and pos in crop_vars[name]:
-            # Force this crop placement
             model.Add(crop_vars[name][pos] == 1)
 
     return locked_contributions
@@ -504,7 +497,6 @@ def extract_results(
         if mutation_placements:
             mutations_result.extend(mutation_placements)
 
-    # Count total cells used
     used_cells = set()
     for crop_name, positions in crop_vars.items():
         crop_size = crop_defs[crop_name].size
