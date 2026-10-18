@@ -4,6 +4,7 @@
 import json
 import math
 import os
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Dict, FrozenSet, Iterable, List, Optional, Sequence, Set, Tuple
 
@@ -35,6 +36,8 @@ RELAY_EFFECT = "effect_spread"
 EFFECT_NAMES: Tuple[str, ...] = tuple(_RAW.get("effects", {}).keys())
 
 PROPAGATABLE_EFFECTS: Tuple[str, ...] = tuple(EFFECT_NAMES)
+
+EFFECT_INERT_KINDS: FrozenSet[str] = frozenset({"fire"})
 
 SPECIAL_EFFECT_SETS: Dict[str, FrozenSet[str]] = {
     name: frozenset(entry.get("positive_buffs") or [])
@@ -76,11 +79,14 @@ class PlantBuffs:
 
 def plant_buffs_from_def(d) -> PlantBuffs:
     """Build a PlantBuffs from a CropDefinition, MutationDefinition or raw dict."""
+    name = name_of(d)
+    if name in EFFECT_INERT_KINDS:
+        return PlantBuffs(name=name, size=int(_get(d, "size", 1) or 1), intrinsic=frozenset(), spreads=False)
     positive = list(_get(d, "positive_buffs", []) or [])
     negative = list(_get(d, "negative_buffs", []) or [])
     listed = set(positive) | set(negative)
     return PlantBuffs(
-        name=name_of(d),
+        name=name,
         size=int(_get(d, "size", 1) or 1),
         intrinsic=frozenset(listed),
         spreads=RELAY_EFFECT in listed,
@@ -110,40 +116,6 @@ def default_buff_crops(all_crops: Iterable) -> List[str]:
 
 CARDINAL = ((-1, 0), (1, 0), (0, -1), (0, 1))
 
-RELAY_HASH_COLUMN_FACTOR = 13
-RELAY_TABLE_INITIAL = 16
-RELAY_TABLE_LOAD_FACTOR = 0.75
-
-
-def relay_table_size(spreader_count: int) -> int:
-    """HashMap capacity holding `spreader_count` entries: 16, doubled while
-    the count exceeds 75% of it (resizes at 13, 25, 49, 97)."""
-    table = RELAY_TABLE_INITIAL
-    while spreader_count > RELAY_TABLE_LOAD_FACTOR * table:
-        table *= 2
-    return table
-
-
-def relay_turn_key(position, table: int) -> Tuple[int, int, int]:
-    """Sort key for a spreader's turn: its hash slot, then row, then column."""
-    row, col = position
-    return ((RELAY_HASH_COLUMN_FACTOR * col + row) % table, row, col)
-
-
-def relay_regimes(cells: Iterable) -> List[Tuple[int, int, Optional[int]]]:
-    """Every (table, min_count, max_count) whose turn order can differ on
-    these cells."""
-    max_key = max((RELAY_HASH_COLUMN_FACTOR * c + r for r, c in cells), default=0)
-    out: List[Tuple[int, int, Optional[int]]] = []
-    table, lo = RELAY_TABLE_INITIAL, 0
-    while True:
-        hi = int(RELAY_TABLE_LOAD_FACTOR * table)
-        if table > max_key:
-            out.append((table, lo, None))
-            return out
-        out.append((table, lo, hi))
-        table, lo = table * 2, hi + 1
-
 
 @dataclass
 class SimPlant:
@@ -154,14 +126,13 @@ class SimPlant:
     buffs: PlantBuffs
     has: Set[str] = field(default_factory=set)
     is_mutation_slot: bool = False
+    is_inert: bool = False
 
 
 @dataclass
 class EffectSimulation:
     cell_to_plant: Dict[tuple, SimPlant]
     plants: List[SimPlant]
-    relay_order: List[SimPlant] = field(default_factory=list)   # spreaders, in turn order
-    relay_table: int = RELAY_TABLE_INITIAL
 
 
     def raw_at(self, cell) -> FrozenSet[str]:
@@ -217,7 +188,7 @@ def simulate_effects(
         plant_cells = tuple(c for c in get_crop_cells(pos, size) if c in cell_set)
         plant = SimPlant(
             name=name, position=pos, size=size, cells=plant_cells, buffs=buffs,
-            has=set(), is_mutation_slot=is_slot,
+            has=set(), is_mutation_slot=is_slot, is_inert=name in EFFECT_INERT_KINDS,
         )
         plants.append(plant)
         for c in plant_cells:
@@ -230,14 +201,19 @@ def simulate_effects(
         name, pos, size = _placement_fields(s)
         add(name, pos, size, True)
 
+    receivers: Dict[int, List[SimPlant]] = {}
+
     def neighbours(plant: SimPlant) -> List[SimPlant]:
-        seen: List[SimPlant] = []
-        for r, c in plant.cells:
-            for dr, dc in CARDINAL:
-                q = cell_to_plant.get((r + dr, c + dc))
-                if q is not None and q is not plant and all(q is not x for x in seen):
-                    seen.append(q)
-        return seen
+        out = receivers.get(id(plant))
+        if out is None:
+            out = []
+            for r, c in plant.cells:
+                for dr, dc in CARDINAL:
+                    q = cell_to_plant.get((r + dr, c + dc))
+                    if q is not None and q is not plant and not q.is_inert and all(q is not x for x in out):
+                        out.append(q)
+            receivers[id(plant)] = out
+        return out
 
     # 1. Direct effects: only listed buffs, so order is free.
     for plant in plants:
@@ -246,20 +222,26 @@ def simulate_effects(
         for q in neighbours(plant):
             q.has |= plant.buffs.intrinsic
 
-    # 2-3. One relay turn per spreader, in HashMap order.
-    spreaders = [p for p in plants if not p.is_mutation_slot and RELAY_EFFECT in p.has]
-    table = relay_table_size(len(spreaders))
-    spreaders.sort(key=lambda p: relay_turn_key(p.position, table))
-    for plant in spreaders:
-        payload = plant.has - {RELAY_EFFECT}
-        if not payload:
-            continue
-        for q in neighbours(plant):
-            q.has |= payload
+    relays = [p for p in plants if not p.is_mutation_slot and RELAY_EFFECT in p.has]
+    relay_ids = {id(p) for p in relays}
 
-    return EffectSimulation(
-        cell_to_plant=cell_to_plant, plants=plants, relay_order=spreaders, relay_table=table,
-    )
+    queue = deque(relays)
+    queued = set(relay_ids)
+    while queue:
+        plant = queue.popleft()
+        queued.discard(id(plant))
+        near = neighbours(plant)
+        before = [(q, len(q.has)) for q in near if id(q) in relay_ids]
+        payload = plant.has - {RELAY_EFFECT}
+        if payload:
+            for q in near:
+                q.has |= payload
+        for q, size in before:
+            if len(q.has) != size and id(q) not in queued:
+                queue.append(q)
+                queued.add(id(q))
+
+    return EffectSimulation(cell_to_plant=cell_to_plant, plants=plants)
 
 
 def resolve_effect_weights(targets: Sequence, request_weights: Optional[Dict[str, float]]) -> Dict[str, Dict[str, float]]:
@@ -490,6 +472,7 @@ def prune_valueless_placements(
     buff_table: Dict[str, PlantBuffs],
     mutation_defs: Dict,
     free_names: Optional[Iterable[str]] = None,
+    keep_fn=None,
 ) -> Tuple[List[Dict], ScoreBreakdown]:
     """Drop every non-locked placement whose removal does not lower the exact
     score, does not lower the spawn rate of any slot (fixed-count slots earn
@@ -515,6 +498,8 @@ def prune_valueless_placements(
         candidates = sorted((p for p in current if not p.get("locked")), key=sort_key)
         for p in candidates:
             trial = [q for q in current if q is not p]
+            if keep_fn is not None and not keep_fn(trial):
+                continue
             if not slots_all_eligible(cells, trial, mutation_slots, mutation_defs, buff_table):
                 continue
             trial_score, trial_rate = score(trial)

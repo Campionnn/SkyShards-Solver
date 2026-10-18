@@ -33,6 +33,7 @@ class GenericSolveRequest(BaseModel):
     buff_crops: Optional[List[str]] = None
     remove_unused_crops: bool = False
     locks: Optional[List[LockedPlacement]] = None
+    unique_crops: Optional[int] = Field(None, ge=0, le=12)
     crops: Optional[List[CropDefinition]] = Field(None, exclude=True)
     mutations: Optional[List[MutationDefinition]] = Field(None, exclude=True)
 
@@ -61,8 +62,11 @@ class GenericSolveResponse(BaseModel):
     placements: List[CropPlacement]
     mutations: List[MutationResult]
     cache_hit: Optional[str] = None
+    time_limit: Optional[float] = None
     score: Optional[float] = None
     effect_value: Optional[float] = None
     expected_spawns_per_tick: Optional[float] = None
     effect_weights: Optional[Dict[str, Dict[str, float]]] = None
     buff_crops: Optional[List[str]] = None
+    # UNIQUE_CROPS
+    unique_crops: Optional[Dict] = None

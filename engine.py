@@ -50,6 +50,8 @@ from solver import (
     add_special_eligibility_constraints,
 )
 
+from solver import unique_crops  # UNIQUE_CROPS
+from solver.effects import slots_all_eligible
 from gamedata import DEFAULT_DATA, DEFAULT_EFFECT_WEIGHTS
 
 
@@ -201,6 +203,7 @@ def get_required_mutations_and_crops(
             positive_buffs=m.get('positive_buffs', []),
             negative_buffs=m.get('negative_buffs', []),
             drops=m.get('drops', {}),
+            requires_watering=m.get('requires_watering', False),
             special=m.get('special'),
             harvest_info=m.get('harvest_info'),
             growing_info=m.get('growing_info'),
@@ -381,6 +384,9 @@ def solve_standard(
     solver = _make_solver(time_budget)
 
     if callback:
+        on_bound = getattr(callback, "on_best_bound", None)
+        if on_bound is not None and hasattr(solver, "best_bound_callback"):
+            solver.best_bound_callback = on_bound
         callback.start_background_updater()
         try:
             status = solver.Solve(model, callback)
@@ -434,10 +440,17 @@ class PreparedProblem:
     default_crops: List[CropDefinition]   # every base crop, priorities applied
     ctx: EffectContext
     weights: Dict[str, Dict[str, float]]
+    unique: unique_crops.UniqueCropsPlan = unique_crops.NO_PLAN  # UNIQUE_CROPS
 
     @property
     def has_locks(self) -> bool:
         return self.req.locks is not None and len(self.req.locks) > 0
+
+    @property
+    def cacheable(self) -> bool:
+        """Locked and unique-crops solves are never cached (the cache key
+        knows neither)."""
+        return not self.has_locks and not self.unique.enabled  # UNIQUE_CROPS
 
 
 def prepare_problem(req: GenericSolveRequest) -> PreparedProblem:
@@ -465,12 +478,15 @@ def prepare_problem(req: GenericSolveRequest) -> PreparedProblem:
     if ctx.active:
         ctx.free_names = resolve_buff_sources(req, default_crops, weights, required)
 
+    unique = unique_crops.plan_unique_crops(req.unique_crops, req.locks, len(req.cells))
+    extra_names = list(ctx.free_names) + [n for n in unique.candidate_crops if n not in ctx.free_names]
+
     filtered_mutations, filtered_crops = get_required_mutations_and_crops(
         req.targets,
         DEFAULT_DATA['mutations'],
         default_crops,
         req.priorities if req.priorities else DEFAULT_PRIORITIES,
-        extra_crop_names=ctx.free_names,
+        extra_crop_names=extra_names,
     )
 
     prepared_req = GenericSolveRequest(
@@ -483,13 +499,36 @@ def prepare_problem(req: GenericSolveRequest) -> PreparedProblem:
         buff_crops=ctx.free_names if ctx.active else req.buff_crops,
         remove_unused_crops=req.remove_unused_crops,
         locks=req.locks,
+        unique_crops=req.unique_crops,
     )
     return PreparedProblem(
         req=prepared_req,
         default_crops=default_crops,
         ctx=ctx,
         weights=weights,
+        unique=unique,
     )
+
+
+def _relocate_unique_fillers(cells, placements, mutations_result, req, weights, mutation_defs):
+    """UNIQUE_CROPS: move fillers that hurt a slot's spawn pool (see
+    solver/unique_crops.relocate_fillers), then rescore."""
+    all_muts = DEFAULT_DATA['mutations']
+
+    def score_fn(pl):
+        bd = score_layout_with_effects(
+            cells, pl, mutations_result, all_muts, req.targets, weights, BUFF_TABLE, detailed=False
+        )
+        return bd.score, bd.total_rate
+
+    def eligible_fn(pl):
+        return slots_all_eligible(cells, pl, mutations_result, mutation_defs, BUFF_TABLE)
+
+    placements = unique_crops.relocate_fillers(cells, placements, mutations_result, score_fn, eligible_fn)
+    breakdown = score_layout_with_effects(
+        cells, placements, mutations_result, all_muts, req.targets, weights, BUFF_TABLE
+    )
+    return placements, breakdown
 
 
 def _best_bound(callback, solver, use_captured_solution) -> Optional[float]:
@@ -539,8 +578,10 @@ def solve_generic(
             locked_crop_positions[name].append(pos)
         locks_as_dicts = [{"name": l.name, "size": l.size, "position": list(l.position)} for l in req.locks]
 
+    unique = prep.unique  # UNIQUE_CROPS
+
     hints = None
-    if solvecache is not None and not has_locks:
+    if solvecache is not None and prep.cacheable:
         hints = solvecache.lookup(prep, cells, resume_effort_floor=resume_effort_floor)
         if hints.response is not None:
             return annotate_result(hints.response, cells, req, ctx)
@@ -557,7 +598,7 @@ def solve_generic(
         req, cells, cell_set, crop_defs,
         locked_cells=locked_cells if has_locks else None,
         locked_crop_positions=locked_crop_positions if has_locks else None,
-        extra_crop_names=set(ctx.free_names),
+        extra_crop_names=set(ctx.free_names) | set(unique.candidate_crops),
     )
 
     unrestricted_cells: Optional[set] = None
@@ -586,6 +627,8 @@ def solve_generic(
         unrestricted_crops=set(ctx.free_names) if ctx.active else None,
         unrestricted_cells=unrestricted_cells,
     )
+
+    unique_crops.add_filler_positions(model, unique, crop_vars, crop_valid_positions)
 
     mutation_chain_vars = create_multiplicity_chains(model, req, mutation_vars, cell_set)
 
@@ -633,6 +676,12 @@ def solve_generic(
     )
 
     cell_used_vars = create_cell_used_vars(model, cells, cell_usage)
+
+    # UNIQUE_CROPS
+    if not unique_crops.add_unique_crops_constraint(model, unique, crop_vars):
+        raise HTTPException(
+            400, f"Not enough free cells to fit {unique.target} unique crops around the locked placements"
+        )
 
     # Effect propagation circuit + weighted score terms
     effect_terms = []
@@ -683,7 +732,8 @@ def solve_generic(
         job_id = job_context.get('job_id')
         start_time = job_context.get('start_time', time.time())
         if job_manager and job_id:
-            update_job_phase(job_manager, job_id, "Solving", "Running optimization", start_time)
+            update_job_phase(job_manager, job_id, "Solving", "Running optimization", start_time,
+                             time_limit=unified_budget)
             crop_sizes = {crop_name: crop_defs[crop_name].size for crop_name in crop_vars.keys()}
             mutation_sizes = {mut.name: mut.size for mut in req.mutations}
 
@@ -718,6 +768,12 @@ def solve_generic(
         status = cp_model.FEASIBLE
 
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        if status == cp_model.INFEASIBLE and unique.needs_model:  # UNIQUE_CROPS
+            raise HTTPException(
+                400,
+                f"No layout fits {unique.target} unique crops alongside these targets; "
+                "lower the unique crops slider or the target counts",
+            )
         raise HTTPException(503, "No solution found")
 
     placements, mutations_result, used_cells = extract_results(
@@ -740,7 +796,12 @@ def solve_generic(
     placements, breakdown = prune_valueless_placements(
         cells, placements, mutations_result, DEFAULT_DATA['mutations'], req.targets,
         weights, BUFF_TABLE, mutation_defs, free_names=ctx.free_names,
+        keep_fn=unique_crops.keeps_coverage(unique),  # UNIQUE_CROPS
     )
+    if unique.enabled:  # UNIQUE_CROPS
+        placements, breakdown = _relocate_unique_fillers(
+            cells, placements, mutations_result, req, weights, mutation_defs
+        )
     used_cells = set()
     for p in placements:
         used_cells.update(get_crop_cells(tuple(p["position"]), p["size"]))
@@ -758,12 +819,15 @@ def solve_generic(
         "placements": placements,
         "mutations": mutations_result,
         "cache_hit": hints.cache_hit if hints else None,
+        "time_limit": unified_budget,
     }
     annotate_result(result, cells, req, ctx)
+    if unique.enabled:  # UNIQUE_CROPS
+        result["unique_crops"] = unique_crops.summarize(unique, placements)
     if effect_stats:
         result["effect_model_stats"] = effect_stats
 
-    if solvecache is not None and not maximize_only and not has_locks:
+    if solvecache is not None and not maximize_only and prep.cacheable:
         solvecache.store(prep, cells, result, solvecache.Outcome(
             status=final_status,
             has_maximize=has_maximize,

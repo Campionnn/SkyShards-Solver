@@ -9,13 +9,12 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
 from ortools.sat.python import cp_model
 
 from .effects import (
+    EFFECT_INERT_KINDS,
     IMPROVED_OF,
     NEGATIVE_EFFECTS,
     RELAY_EFFECT,
     SPECIAL_EFFECT_SETS,
     PlantBuffs,
-    relay_regimes,
-    relay_turn_key,
     slot_unit_int,
 )
 from .helpers import get_crop_cells
@@ -31,12 +30,15 @@ CARDINAL_ORDER = {
 
 
 class _Builder:
-    """Small helper that creates exact OR/AND literals with constant folding."""
+    """Creates exact OR/AND literals with constant folding and hash-consing."""
 
     def __init__(self, model: cp_model.CpModel):
         self.model = model
         self.num_bools = 0
         self.num_constraints = 0
+        self._or_memo: Dict[frozenset, Literal] = {}
+        self._and_memo: Dict[frozenset, Literal] = {}
+        self._sum_memo: Dict[frozenset, Literal] = {}
 
     def new_bool(self, name: str):
         self.num_bools += 1
@@ -50,52 +52,79 @@ class _Builder:
             return True
         return lit.Not()
 
-    def or_(self, lits: Iterable, name: str):
-        kept = []
-        seen = set()
+    @staticmethod
+    def _operands(lits: Iterable, absorbing: bool):
+        """Distinct non-constant operands keyed by literal index, or the
+        `absorbing` constant when one operand (or a complementary pair)
+        decides the gate."""
+        kept: Dict[int, Literal] = {}
         for l in lits:
-            if l is True:
-                return True
-            if l is False:
+            if l is absorbing:
+                return absorbing
+            if l is (not absorbing):
                 continue
-            key = id(l)
-            if key in seen:
-                continue
-            seen.add(key)
-            kept.append(l)
+            k = l.Index()
+            if ~k in kept:
+                return absorbing
+            if k not in kept:
+                kept[k] = l
+        return kept
+
+    def or_(self, lits: Iterable, name: str):
+        kept = self._operands(lits, True)
+        if kept is True:
+            return True
         if not kept:
             return False
         if len(kept) == 1:
-            return kept[0]
+            return next(iter(kept.values()))
+        key = frozenset(kept)
+        y = self._or_memo.get(key)
+        if y is not None:
+            return y
+        ops = list(kept.values())
         y = self.new_bool(name)
-        self.model.AddBoolOr(kept).OnlyEnforceIf(y)
-        for l in kept:
-            self.model.AddImplication(l, y)
-        self.num_constraints += 1 + len(kept)
+        self.model.AddBoolOr(ops).OnlyEnforceIf(y)
+        self.model.AddBoolAnd([self.neg(l) for l in ops]).OnlyEnforceIf(y.Not())
+        self.num_constraints += 2
+        self._or_memo[key] = y
         return y
 
     def and_(self, lits: Iterable, name: str):
-        kept = []
-        seen = set()
-        for l in lits:
-            if l is False:
-                return False
-            if l is True:
-                continue
-            key = id(l)
-            if key in seen:
-                continue
-            seen.add(key)
-            kept.append(l)
+        kept = self._operands(lits, False)
+        if kept is False:
+            return False
         if not kept:
             return True
         if len(kept) == 1:
-            return kept[0]
+            return next(iter(kept.values()))
+        key = frozenset(kept)
+        y = self._and_memo.get(key)
+        if y is not None:
+            return y
         y = self.new_bool(name)
-        self.model.AddBoolAnd(kept).OnlyEnforceIf(y)
-        self.model.AddBoolOr([self.neg(l) for l in kept] + [y])
-        self.num_constraints += 2
+        self._define_and(y, list(kept.values()))
+        self._and_memo[key] = y
         return y
+
+    def _define_and(self, y, ops: List) -> None:
+        self.model.AddBoolAnd(ops).OnlyEnforceIf(y)
+        self.model.AddBoolOr([self.neg(l) for l in ops] + [y])
+        self.num_constraints += 2
+
+    def clause(self, lits: Iterable) -> None:
+        """Add OR(lits) as a constraint, folding constants."""
+        ops = []
+        for l in lits:
+            if l is True:
+                return
+            if l is False:
+                continue
+            ops.append(l)
+        if not ops:
+            raise ValueError("empty clause: the effect circuit is contradictory")
+        self.model.AddBoolOr(ops)
+        self.num_constraints += 1
 
     def as_var(self, lit, name: str):
         """Materialize a literal as a plain BoolVar (objective terms need one)."""
@@ -112,9 +141,14 @@ class _Builder:
             return False
         if len(vars_list) == 1:
             return vars_list[0]
+        key = frozenset(v.Index() for v in vars_list)
+        y = self._sum_memo.get(key)
+        if y is not None:
+            return y
         y = self.new_bool(name)
         self.model.Add(y == sum(vars_list))
         self.num_constraints += 1
+        self._sum_memo[key] = y
         return y
 
 
@@ -176,7 +210,7 @@ def build_effect_model(
     locked_placements: Optional[Sequence[Dict]],
     needed: Iterable[str],
 ) -> EffectModel:
-    """Encode direct effects plus the one-turn-per-spreader relay for the effects
+    """Encode direct effects plus the relay fixpoint for the effects
     in `needed`, and return the final held-set literals per cell."""
     b = _Builder(model)
     effects = tuple(sorted(needed))
@@ -187,6 +221,7 @@ def build_effect_model(
     order = sorted(cell_set)
 
     placements: List[Tuple[Literal, frozenset, tuple, frozenset]] = []
+    placement_names: List[str] = []
     for name, positions in crop_vars.items():
         occ_map = crop_occupied_cells.get(name, {})
         buffs = buff_table.get(name)
@@ -195,6 +230,7 @@ def build_effect_model(
             occ = frozenset(c for c in occ_map.get(pos, ()) if c in cell_set)
             if occ:
                 placements.append((var, occ, tuple(pos), listed))
+                placement_names.append(name)
     for lock in locked_placements or []:
         name = lock.get("name") or lock.get("crop")
         buffs = buff_table.get(name)
@@ -203,6 +239,7 @@ def build_effect_model(
         occ = frozenset(c for c in get_crop_cells(pos, int(lock.get("size", 1))) if c in cell_set)
         if occ:
             placements.append((True, occ, pos, listed))
+            placement_names.append(name)
 
     covering: Dict[tuple, List[int]] = {c: [] for c in cell_set}
     for i, (_, occ, _, _) in enumerate(placements):
@@ -212,6 +249,10 @@ def build_effect_model(
         c: [i for i in covering[c] if len(placements[i][1]) == 1] for c in cell_set
     }
     multis = [i for i, p in enumerate(placements) if len(p[1]) > 1]
+    inert_idx = {i for i, nm in enumerate(placement_names) if nm in EFFECT_INERT_KINDS}
+    inert_single_at: Dict[tuple, List[int]] = {
+        c: [i for i in single_at[c] if i in inert_idx] for c in cell_set
+    }
 
     def nbrs(cell):
         r, c = cell
@@ -246,8 +287,14 @@ def build_effect_model(
             return gives_cache[key]
         return any_of(kept, f"gives_{q}_{c}_{e}") if kept else False
 
-    direct: Dict[tuple, Dict[str, Literal]] = {
+    raw_direct: Dict[tuple, Dict[str, Literal]] = {
         c: {e: b.or_([gives_to(q, c, e) for q in nbrs(c)], f"direct_{c}_{e}") for e in tracked}
+        for c in order
+    }
+
+    inert_present = {c: any_of(inert_single_at[c], f"inertpresent_{c}") for c in order}
+    direct: Dict[tuple, Dict[str, Literal]] = {
+        c: {e: b.and_([raw_direct[c][e], b.neg(inert_present[c])], f"directmasked_{c}_{e}") for e in tracked}
         for c in order
     }
 
@@ -279,10 +326,10 @@ def build_effect_model(
                 out[c][e] = b.or_(terms, f"hold_{c}_{e}")
         return out
 
-    def finish(has_final, regimes_used):
+    def finish(has_final, levels_used=0):
         stats = {
             "num_bools": b.num_bools, "num_constraints": b.num_constraints, "effects": len(effects),
-            "relay_tables": regimes_used, "possible_spreaders": len(live),
+            "possible_spreaders": len(live), "fixpoint_levels": levels_used,
             "multi_cell_units": len(multis),
         }
         return EffectModel(effects=effects, has_final=has_final, spread_possible=spread_possible,
@@ -291,101 +338,114 @@ def build_effect_model(
     if not spread_possible:
         base = entity_or_tile({c: {e: direct[c][e] for e in effects} for c in order}) if multis else \
             {c: {e: direct[c][e] for e in effects} for c in order}
-        return finish(base, [])
+        return finish(base)
 
-    # ---- which table sizes can the spreader count reach?
-    forced = sum(1 for l in unit_lits if l is True)
-    regimes = [(t, lo, hi) for t, lo, hi in relay_regimes(order)
-               if lo <= len(live) and (hi is None or hi >= forced)]
-
-    def relay_circuit(table):
-        tile_key = {c: relay_turn_key(c, table) for c in order}
-        multi_key = {i: relay_turn_key(placements[i][2], table) for i in multis}
-        units = [("tile", c, tile_key[c]) for c in order] + [("multi", i, multi_key[i]) for i in multis]
-        units.sort(key=lambda u: u[2])
-        tile_push: Dict[tuple, Dict[str, Literal]] = {}
-        multi_push: Dict[int, Dict[str, Literal]] = {}
-
-        def pushes_into(target_cells, own, key_limit):
-            """Push literals landing on `target_cells` from neighbouring units
-            (not `own`, not overlapping it) whose turn key is below key_limit
-            (None: every neighbour)."""
-            own_occ = placements[own][1] if own is not None else frozenset()
-            lits_by_e = {e: [] for e in relayed}
-            seen_tiles, seen_multis = set(), set()
-            for x in target_cells:
-                for q in nbrs(x):
-                    if q in target_cells:
+    def neighbour_units(target_cells, own):
+        """Units next to `target_cells` (not `own`, not overlapping it), as
+        (kind, id) in a deterministic order."""
+        own_occ = placements[own][1] if own is not None else frozenset()
+        out = []
+        seen_tiles, seen_multis = set(), set()
+        for x in target_cells:
+            for q in nbrs(x):
+                if q in target_cells:
+                    continue
+                if q not in seen_tiles:
+                    seen_tiles.add(q)
+                    out.append(("tile", q))
+                for w in covering[q]:
+                    if w not in multi_held or w == own or w in seen_multis:
                         continue
-                    if q not in seen_tiles and (key_limit is None or tile_key[q] < key_limit):
-                        seen_tiles.add(q)
-                        for e in relayed:
-                            lits_by_e[e].append(tile_push[q][e])
-                    for w in covering[q]:
-                        if w not in multi_held or w == own or w in seen_multis:
-                            continue
-                        if own_occ & placements[w][1] or any(t in placements[w][1] for t in target_cells):
-                            continue
-                        if key_limit is not None and not multi_key[w] < key_limit:
-                            continue
-                        seen_multis.add(w)
-                        for e in relayed:
-                            lits_by_e[e].append(multi_push[w][e])
-            return lits_by_e
-
-        for kind, u, key in units:
-            if kind == "tile":
-                c = u
-                tile_push[c] = {}
-                earlier = pushes_into((c,), None, key) if tile_spreader[c] is not False else None
-                for e in relayed:
-                    if earlier is None:
-                        tile_push[c][e] = False
+                    if own_occ & placements[w][1] or any(t in placements[w][1] for t in target_cells):
                         continue
-                    before = b.or_([direct[c][e]] + earlier[e], f"before{table}_{c}_{e}")
-                    tile_push[c][e] = b.and_([tile_spreader[c], before], f"push{table}_{c}_{e}")
-            else:
-                i = u
-                multi_push[i] = {}
-                occ = tuple(sorted(placements[i][1]))
-                earlier = pushes_into(occ, i, key) if multi_spreader[i] is not False else None
-                for e in relayed:
-                    if earlier is None:
-                        multi_push[i][e] = False
-                        continue
-                    before = b.or_([multi_held[i][e]] + earlier[e], f"mbefore{table}_{i}_{e}")
-                    multi_push[i][e] = b.and_([multi_spreader[i], before], f"mpush{table}_{i}_{e}")
+                    seen_multis.add(w)
+                    out.append(("multi", w))
+        return out
 
-        final = {}
-        for c in order:
-            into = pushes_into((c,), None, None)
-            final[c] = {e: b.or_([direct[c][e]] + into[e], f"final{table}_{c}_{e}") for e in relayed}
-        return final
+    units = [("tile", c) for c in order] + [("multi", i) for i in multis]
+    unit_spreader = {("tile", c): tile_spreader[c] for c in order}
+    unit_spreader.update({("multi", i): multi_spreader[i] for i in multis})
+    unit_held = {("tile", c): direct[c] for c in order}
+    unit_held.update({("multi", i): multi_held[i] for i in multis})
+    unit_nbrs = {("tile", c): neighbour_units((c,), None) for c in order}
+    unit_nbrs.update({("multi", i): neighbour_units(tuple(sorted(placements[i][1])), i) for i in multis})
 
-    circuits = [(t, relay_circuit(t)) for t, _, _ in regimes]
-    if len(regimes) == 1:
-        chosen = circuits[0][1]
-    else:
-        count = sum(1 if l is True else l for l in live)
-        indicators = []
-        for t, lo, hi in regimes:
-            ind = b.new_bool(f"relay_table_{t}")
-            model.Add(count >= lo).OnlyEnforceIf(ind)
-            if hi is not None:
-                model.Add(count <= hi).OnlyEnforceIf(ind)
-            indicators.append(ind)
-        model.AddExactlyOne(indicators)
-        b.num_constraints += 2 * len(regimes) + 1
-        chosen = {
-            c: {e: b.or_([b.and_([ind, circ[c][e]], f"sel{t}_{c}_{e}")
-                          for ind, (t, circ) in zip(indicators, circuits)], f"has_{c}_{e}")
-                for e in relayed}
-            for c in order
+    can_push = {
+        u: {e: unit_spreader[u] is not False and unit_held[u][e] is not False for e in relayed}
+        for u in units
+    }
+    changed = True
+    while changed:
+        changed = False
+        for u in units:
+            if unit_spreader[u] is False:
+                continue
+            for e in relayed:
+                if not can_push[u][e] and any(can_push[w][e] for w in unit_nbrs[u]):
+                    can_push[u][e] = True
+                    changed = True
+
+    push: Dict[tuple, Dict[str, Literal]] = {u: {} for u in units}
+    levels_used = 0
+    for e in relayed:
+        live_units = [u for u in units if can_push[u][e]]
+        feeders = {u: [w for w in unit_nbrs[u] if can_push[w][e]] for u in live_units}
+        for u in units:
+            if not can_push[u][e]:
+                push[u][e] = False
+            elif not feeders[u]:
+                push[u][e] = b.and_([unit_spreader[u], unit_held[u][e]], f"push_{u}_{e}")
+        cyclic = [u for u in live_units if feeders[u]]
+        component: Dict[tuple, int] = {}
+        sizes: List[int] = []
+        for start in cyclic:
+            if start in component:
+                continue
+            k = len(sizes)
+            component[start] = k
+            stack, size = [start], 0
+            while stack:
+                u = stack.pop()
+                size += 1
+                for w in feeders[u]:
+                    if w not in component and feeders.get(w):
+                        component[w] = k
+                        stack.append(w)
+            sizes.append(size)
+        for u in cyclic:
+            push[u][e] = b.new_bool(f"push_{u}_{e}")
+        level = {}
+        for u in cyclic:
+            level[u] = model.NewIntVar(0, max(0, sizes[component[u]] - 1), f"level_{u}_{e}")
+            levels_used += 1
+        for u in cyclic:
+            y, spr, held = push[u][e], unit_spreader[u], unit_held[u][e]
+            b.clause([b.neg(spr), b.neg(held), y])
+            for w in feeders[u]:
+                b.clause([b.neg(spr), b.neg(push[w][e]), y])
+            b.clause([b.neg(y), spr])
+            support = []
+            for w in feeders[u]:
+                s = b.new_bool(f"support_{w}_{u}_{e}")
+                model.AddImplication(s, push[w][e])
+                if w in level:
+                    model.Add(level[w] < level[u]).OnlyEnforceIf(s)
+                    b.num_constraints += 1
+                b.num_constraints += 1
+                support.append(s)
+            b.clause([b.neg(y), held] + support)
+
+    chosen = {}
+    for c in order:
+        into = unit_nbrs[("tile", c)]
+        chosen[c] = {
+            e: b.or_([direct[c][e]] + [push[w][e] for w in into], f"final_{c}_{e}")
+            for e in relayed
         }
 
     per_cell = {c: {e: (direct[c][e] if e == RELAY_EFFECT else chosen[c][e]) for e in effects} for c in order}
     has_final = entity_or_tile(per_cell) if multis else per_cell
-    return finish(has_final, [t for t, _, _ in regimes])
+    return finish(has_final, levels_used)
 
 
 def add_effect_score_terms(

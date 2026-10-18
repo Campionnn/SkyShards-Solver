@@ -35,6 +35,16 @@ class JobProgress(BaseModel):
     preview_placements: Optional[List[Dict]] = None
     preview_mutations: Optional[List[Dict]] = None
     preview_cells_used: Optional[int] = None
+    time_limit_seconds: Optional[float] = None
+    stage: Optional[str] = None
+    tie_break: Optional[str] = None
+    has_score: Optional[bool] = None
+    has_priority: Optional[bool] = None
+    best_score: Optional[float] = None
+    score_bound: Optional[float] = None
+    best_priority: Optional[int] = None
+    best_cells: Optional[int] = None
+    best_mutations: Optional[int] = None
 
 
 class Job(BaseModel):

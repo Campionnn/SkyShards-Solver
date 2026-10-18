@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # SkyShards local solver. See LICENSE.
 
+import math
 import time
 import threading
 from typing import Optional, Callable, Dict, Any, List
@@ -118,7 +119,10 @@ class SolverProgressCallback(cp_model.CpSolverSolutionCallback):
 
         percentage = self._calculate_percentage()
 
+        stage_info = self._decode_stage(n_muts)
+
         progress = JobProgress(
+            **stage_info,
             phase="solving",
             percentage=percentage,
             solutions_found=self.solutions_found,
@@ -128,10 +132,53 @@ class SolverProgressCallback(cp_model.CpSolverSolutionCallback):
             elapsed_seconds=current_time - self.start_time,
             preview_placements=preview_placements,
             preview_mutations=preview_mutations,
-            preview_cells_used=preview_cells_used
+            preview_cells_used=preview_cells_used,
+            time_limit_seconds=self.time_limit,
         )
 
         self.job_manager.update_progress(self.job_id, progress)
+
+    def on_best_bound(self, bound: float) -> None:
+        """CpSolver.best_bound_callback hook."""
+        try:
+            self.best_bound = float(bound)
+        except (TypeError, ValueError):
+            pass
+
+    def _decode_stage(self, n_muts: int) -> Dict[str, Any]:
+        """Split the best objective and the bound into the lexicographic tiers
+        (see solver.constraints.build_objective):"""
+        scales = self.objective_scales
+        if scales is None or self.best_objective is None:
+            return {}
+        # score_only objectives (score_scale 1) have no tie-breakers
+        if scales.score_scale <= 1:
+            return {}
+        try:
+            s_int, prio, cells = scales.decode(self.best_objective)
+            has_priority = scales.score_scale > scales.priority_scale
+            out: Dict[str, Any] = {
+                "has_score": bool(scales.has_score_terms),
+                "has_priority": has_priority,
+                "best_score": round(scales.score_from_int(s_int), 4),
+                "best_priority": int(prio),
+                "best_cells": int(cells),
+                "best_mutations": n_muts,
+            }
+            if self.best_bound is None:
+                out["stage"] = "maximizing" if scales.has_score_terms else "tie_breaking"
+                return out
+            # The objective is an integer, so the bound can be floored.
+            b_score, b_prio, _b_cells = scales.decode(math.floor(self.best_bound + 1e-6))
+            out["score_bound"] = round(scales.score_from_int(max(b_score, s_int)), 4)
+            if scales.has_score_terms and b_score > s_int:
+                out["stage"] = "maximizing"
+            else:
+                out["stage"] = "tie_breaking"
+                out["tie_break"] = "priority" if has_priority and b_score == s_int and b_prio < prio else "cells"
+            return out
+        except Exception:
+            return {}
 
     def on_solution_callback(self):
         """Called when the solver finds a new solution."""
@@ -281,7 +328,8 @@ def update_job_phase(
     job_id: str,
     phase: str,
     activity: str,
-    start_time: float
+    start_time: float,
+    time_limit: Optional[float] = None,
 ) -> None:
     """Update job progress with a phase change."""
     progress = JobProgress(
@@ -294,6 +342,7 @@ def update_job_phase(
         elapsed_seconds=time.time() - start_time,
         preview_placements=None,
         preview_mutations=None,
-        preview_cells_used=None
+        preview_cells_used=None,
+        time_limit_seconds=time_limit,
     )
     job_manager.update_progress(job_id, progress)

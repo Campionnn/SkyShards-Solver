@@ -16,6 +16,7 @@ class CropDefinition(BaseModel):
     growth_stages: Optional[int] = None
     positive_buffs: List[str] = Field(default_factory=list)
     negative_buffs: List[str] = Field(default_factory=list)
+    drops: Dict[str, int] = Field(default_factory=dict)
     sell_price: Optional[float] = None
 
 
@@ -38,6 +39,7 @@ class MutationDefinition(BaseModel):
     positive_buffs: List[str] = Field(default_factory=list)
     negative_buffs: List[str] = Field(default_factory=list)
     drops: Dict[str, int] = Field(default_factory=dict)
+    requires_watering: bool = False
     special: Optional[str] = None
     harvest_info: Optional[str] = None
     growing_info: Optional[str] = None

@@ -65,7 +65,6 @@ def solve_job(request_params: Dict, job_id: str, job_manager) -> Dict:
         raise ValueError("only greenhouse solves run in the local solver")
     result = engine.run_job(request_params, job_id, job_manager, allow_client_time_limit=True)
     if isinstance(result, dict):
-        result.pop("_polish_eligible", None)
         params = {k: v for k, v in request_params.items() if not k.startswith("_")}
         contribute.offer(params, result)
     return result
@@ -170,7 +169,6 @@ def solve_direct(payload: Dict = Body(...), maximize_only: bool = False, time_li
     """Same body handling as the public endpoint (flat or {"req": ...})."""
     if isinstance(payload.get("req"), dict) and "cells" not in payload:
         payload = payload["req"]
-    payload.pop("unique_crops", None)
     payload = engine.with_default_effect_weights(payload)
     try:
         req = GenericSolveRequest(**payload)
@@ -179,10 +177,8 @@ def solve_direct(payload: Dict = Body(...), maximize_only: bool = False, time_li
     result = engine.solve_generic(
         req, maximize_only=maximize_only, time_limit=engine.clamp_client_time_limit(time_limit)
     )
-    if isinstance(result, dict):
-        result.pop("_polish_eligible", None)
-        if not maximize_only:
-            contribute.offer(req.model_dump(mode="json"), result)
+    if isinstance(result, dict) and not maximize_only:
+        contribute.offer(req.model_dump(mode="json"), result)
     return result
 
 

@@ -30,6 +30,7 @@ for crop_id, crop_data in _RAW_DATA["crops"].items():
         "growth_stages": crop_data.get("growth_stages"),
         "positive_buffs": crop_data.get("positive_buffs", []),
         "negative_buffs": crop_data.get("negative_buffs", []),
+        "drops": crop_data.get("drops", {}),
         "sell_price": crop_data.get("sell_price"),
     })
 
@@ -46,6 +47,7 @@ for mut_id, mut_data in _RAW_DATA["mutations"].items():
         "positive_buffs": mut_data.get("positive_buffs", []),
         "negative_buffs": mut_data.get("negative_buffs", []),
         "drops": mut_data.get("drops", {}),
+        "requires_watering": mut_data.get("requires_watering", False),
         "mutation_chance": mut_data.get("mutation_chance", 0.10),
         "spawn_weight": mut_data.get("spawn_weight", 0),
     }

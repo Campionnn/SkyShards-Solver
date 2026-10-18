@@ -36,7 +36,7 @@ def worth_offering(params: Dict, result: Dict) -> bool:
         return False
     if not result.get("mutations"):
         return False
-    if params.get("locks"):
+    if params.get("locks") or params.get("unique_crops"):  # UNIQUE_CROPS
         return False
     targets = params.get("targets") or []
     cells = params.get("cells") or []
