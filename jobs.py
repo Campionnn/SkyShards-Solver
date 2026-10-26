@@ -116,10 +116,38 @@ class JobManager:
                 columns = [row[1] for row in cursor.fetchall()]
                 if "cancellation_requested" not in columns:
                     conn.execute("ALTER TABLE jobs ADD COLUMN cancellation_requested INTEGER DEFAULT 0")
+                if "submitter_ip" not in columns:
+                    conn.execute("ALTER TABLE jobs ADD COLUMN submitter_ip TEXT")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_submitter_status ON jobs(submitter_ip, status)")
 
                 conn.commit()
 
-    def create_job(self, request_type: str, request_params: Dict) -> str:
+    def count_open_jobs(self, submitter_ip: Optional[str] = None) -> int:
+        """Queued + running jobs, optionally only those from one submitter IP."""
+        open_states = (JobStatus.QUEUED.value, JobStatus.RUNNING.value)
+        with self._lock:
+            with self._get_connection() as conn:
+                if submitter_ip is None:
+                    row = conn.execute(
+                        "SELECT COUNT(*) AS n FROM jobs WHERE status IN (?, ?)", open_states
+                    ).fetchone()
+                else:
+                    row = conn.execute(
+                        "SELECT COUNT(*) AS n FROM jobs WHERE status IN (?, ?) AND submitter_ip = ?",
+                        (*open_states, submitter_ip),
+                    ).fetchone()
+                return int(row["n"]) if row else 0
+
+    def count_queued_jobs(self) -> int:
+        """Jobs waiting in the queue (not yet running)."""
+        with self._lock:
+            with self._get_connection() as conn:
+                row = conn.execute(
+                    "SELECT COUNT(*) AS n FROM jobs WHERE status = ?", (JobStatus.QUEUED.value,)
+                ).fetchone()
+                return int(row["n"]) if row else 0
+
+    def create_job(self, request_type: str, request_params: Dict, submitter_ip: Optional[str] = None) -> str:
         """Create a new job and add it to the queue."""
         job_id = str(uuid.uuid4())
         created_at = time.time()
@@ -127,14 +155,15 @@ class JobManager:
         with self._lock:
             with self._get_connection() as conn:
                 conn.execute("""
-                    INSERT INTO jobs (id, status, request_type, request_params, created_at)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO jobs (id, status, request_type, request_params, created_at, submitter_ip)
+                    VALUES (?, ?, ?, ?, ?, ?)
                 """, (
                     job_id,
                     JobStatus.QUEUED.value,
                     request_type,
                     json.dumps(request_params),
-                    created_at
+                    created_at,
+                    submitter_ip,
                 ))
                 conn.commit()
 
@@ -169,6 +198,26 @@ class JobManager:
                     return None
 
                 return self._row_to_job(row)
+
+    def claim_next_queued_job(self) -> Optional[Job]:
+        """Atomically take the oldest queued job and mark it RUNNING."""
+        now = time.time()
+        with self._lock:
+            with self._get_connection() as conn:
+                row = conn.execute(
+                    "SELECT id FROM jobs WHERE status = ? ORDER BY created_at ASC LIMIT 1",
+                    (JobStatus.QUEUED.value,)
+                ).fetchone()
+                if not row:
+                    return None
+                cursor = conn.execute(
+                    "UPDATE jobs SET status = ?, started_at = ? WHERE id = ? AND status = ?",
+                    (JobStatus.RUNNING.value, now, row["id"], JobStatus.QUEUED.value)
+                )
+                conn.commit()
+                if cursor.rowcount != 1:
+                    return None
+        return self.get_job(row["id"])
 
     def get_queue_position(self, job_id: str) -> Optional[int]:
         """Get the position of a job in the queue."""

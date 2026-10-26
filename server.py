@@ -15,6 +15,7 @@ if HERE not in sys.path:
 import uvicorn
 from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from pydantic import ValidationError
 
 import config
@@ -87,6 +88,9 @@ _cors_kwargs = dict(allow_origins=allowed_origins(), allow_origin_regex=ORIGIN_P
 if "allow_private_network" in inspect.signature(CORSMiddleware.__init__).parameters:
     _cors_kwargs["allow_private_network"] = True
 app.add_middleware(CORSMiddleware, **_cors_kwargs)
+
+ALLOWED_HOSTS = ["127.0.0.1", "localhost"]
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=ALLOWED_HOSTS)
 
 
 @app.middleware("http")
