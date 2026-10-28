@@ -5,7 +5,7 @@ import json
 import math
 import os
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Set
+from typing import Iterable, List, Dict, Optional, Set
 from fastapi import HTTPException
 from ortools.sat.python import cp_model
 import time
@@ -67,6 +67,24 @@ def load_default_priorities() -> Dict[str, int]:
 
 
 DEFAULT_PRIORITIES = load_default_priorities()
+
+
+def merge_priorities(overrides: Optional[Dict[str, int]]) -> Dict[str, int]:
+    """The priorities a solve uses: DEFAULT_PRIORITIES with the request's values
+    on top."""
+    merged = dict(DEFAULT_PRIORITIES)
+    for name, value in (overrides or {}).items():
+        if 0 <= value <= 100:
+            merged[name] = value
+    return merged
+
+
+def layout_priority_points(placements: List[Dict], crops: Iterable) -> int:
+    """The objective's middle tier for a finished layout: the sum of the crop
+    priorities of every unlocked placement (locked plants are forced, so the
+    solver never pays for them)."""
+    prio = {c.name: c.priority for c in crops}
+    return sum(prio.get(p["crop"], 0) for p in placements if not p.get("locked"))
 
 BUFF_TABLE = build_buff_table(
     [CropDefinition(**c) for c in DEFAULT_DATA['crops']],
@@ -457,16 +475,10 @@ def prepare_problem(req: GenericSolveRequest) -> PreparedProblem:
     """Normalise a request into a PreparedProblem (see class doc)."""
     default_crops = [CropDefinition(**c) for c in DEFAULT_DATA['crops']]
 
+    priorities = merge_priorities(req.priorities)
     for crop in default_crops:
-        if crop.name in DEFAULT_PRIORITIES:
-            crop.priority = DEFAULT_PRIORITIES[crop.name]
-
-    if req.priorities:
-        for crop in default_crops:
-            if crop.name in req.priorities:
-                priority_value = req.priorities[crop.name]
-                if 0 <= priority_value <= 100:
-                    crop.priority = priority_value
+        if crop.name in priorities:
+            crop.priority = priorities[crop.name]
 
     # Effect weights and free buff sources
     validate_effect_request(
@@ -485,7 +497,7 @@ def prepare_problem(req: GenericSolveRequest) -> PreparedProblem:
         req.targets,
         DEFAULT_DATA['mutations'],
         default_crops,
-        req.priorities if req.priorities else DEFAULT_PRIORITIES,
+        priorities,
         extra_crop_names=extra_names,
     )
 
@@ -835,6 +847,7 @@ def solve_generic(
             targets=req.targets,
             scales=scales,
             score=breakdown.score,
+            priority=layout_priority_points(placements, req.crops),
             cells_used=len(used_cells),
             best_bound=_best_bound(standard_callback, solver, use_captured_solution),
             solve_duration=(time.time() - job_context["start_time"]) if job_context else 0.0,

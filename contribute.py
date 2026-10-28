@@ -62,6 +62,16 @@ def offer(params: Dict, result: Dict) -> None:
     threading.Thread(target=_send, args=(body,), daemon=True).start()
 
 
+def _tiers(payload: Dict) -> str:
+    """'score 3.2 -> 3.2, priority 2100 -> 2030, cells 82 -> 81' (server -> yours)."""
+    parts = []
+    for label, key in (("score", "score"), ("priority", "priority"), ("cells", "cells")):
+        server, yours = payload.get(f"server_{key}"), payload.get(f"submitted_{key}")
+        if server is not None and yours is not None:
+            parts.append(f"{label} {server} -> {yours}")
+    return ", ".join(parts) or "no details"
+
+
 def _send(body: Dict) -> None:
     data = json.dumps(body).encode("utf-8")
     headers = {"Content-Type": "application/json", "User-Agent": USER_AGENT}
@@ -76,7 +86,6 @@ def _send(body: Dict) -> None:
         print(f"[contribute] could not reach the public server: {e}", flush=True)
         return
     if payload.get("accepted"):
-        print(f"[contribute] accepted: your layout ({payload.get('submitted_score')}) beat the server's "
-              f"({payload.get('server_score')}) - thanks!", flush=True)
+        print(f"[contribute] accepted: your layout beat the server's - {_tiers(payload)} - thanks!", flush=True)
     else:
         print(f"[contribute] not stored: {payload.get('reason', 'unknown')}", flush=True)

@@ -26,7 +26,10 @@ Firefox works without a prompt. Safari may block the connection entirely.
 
 After each solve the local server offers the finished layout to the public server. The
 public server re-checks and re-scores it independently, so a long local solve can improve the
-answer everyone gets. Only the request (grid cells, targets, priorities, effect weights)
+answer everyone gets. A layout is stored when it beats the server's on the solver's own
+objective: a higher score, or the same score with fewer crop priority points, or the same
+score and priority points with fewer cells (the server often stops with the score settled
+but an unneeded plant still in place). Only the request (grid cells, targets, priorities, effect weights)
 and the layout are sent. To opt out, set `"contribute": false` in `config.json`.
 
 Stopping a solve early still offers the best layout it had found, so a long run you
