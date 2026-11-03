@@ -15,7 +15,7 @@
         "wheat": 72,
         "seeds": 1
       },
-      "sell_price": 6
+      "sell_price": 2.5
     },
     "potato": {
       "name": "Potato",
@@ -31,7 +31,7 @@
       "drops": {
         "potato": 150
       },
-      "sell_price": 3
+      "sell_price": 2
     },
     "carrot": {
       "name": "Carrot",
@@ -47,7 +47,7 @@
       "drops": {
         "carrot": 175
       },
-      "sell_price": 3
+      "sell_price": 2
     },
     "pumpkin": {
       "name": "Pumpkin",
@@ -63,7 +63,7 @@
       "drops": {
         "pumpkin": 68
       },
-      "sell_price": 10
+      "sell_price": 4.5
     },
     "melon": {
       "name": "Melon",
@@ -79,7 +79,7 @@
       "drops": {
         "melon": 320
       },
-      "sell_price": 2
+      "sell_price": 1
     },
     "cocoa_beans": {
       "name": "Cocoa Beans",
@@ -95,7 +95,7 @@
       "drops": {
         "cocoa_beans": 120
       },
-      "sell_price": 3
+      "sell_price": 1.5
     },
     "sugar_cane": {
       "name": "Sugar Cane",
@@ -113,7 +113,7 @@
       "drops": {
         "sugar_cane": 136
       },
-      "sell_price": 4
+      "sell_price": 2.5
     },
     "cactus": {
       "name": "Cactus",
@@ -131,7 +131,7 @@
       "drops": {
         "cactus": 132
       },
-      "sell_price": 4
+      "sell_price": 2.5
     },
     "nether_wart": {
       "name": "Nether Wart",
@@ -149,7 +149,7 @@
       "drops": {
         "nether_wart": 108
       },
-      "sell_price": 4
+      "sell_price": 2
     },
     "red_mushroom": {
       "name": "Red Mushroom",
@@ -167,7 +167,7 @@
       "drops": {
         "red_mushroom": 30
       },
-      "sell_price": 10
+      "sell_price": 5
     },
     "brown_mushroom": {
       "name": "Brown Mushroom",
@@ -185,7 +185,7 @@
       "drops": {
         "brown_mushroom": 30
       },
-      "sell_price": 10
+      "sell_price": 5
     },
     "moonflower": {
       "name": "Moonflower",
@@ -201,7 +201,7 @@
       "drops": {
         "moonflower": 232
       },
-      "sell_price": 4
+      "sell_price": 3
     },
     "sunflower": {
       "name": "Sunflower",
@@ -217,7 +217,7 @@
       "drops": {
         "sunflower": 232
       },
-      "sell_price": 4
+      "sell_price": 3
     },
     "wild_rose": {
       "name": "Wild Rose",
@@ -233,7 +233,7 @@
       "drops": {
         "wild_rose": 200
       },
-      "sell_price": 4,
+      "sell_price": 3,
       "notes": "Can only be planted at Garden Level 12."
     },
     "fire": {
@@ -402,7 +402,7 @@
         "carrot": 613,
         "pumpkin": 298
       },
-      "spawn_weight": 6
+      "spawn_weight": 0.6
     },
     "scourroot": {
       "name": "Scourroot",

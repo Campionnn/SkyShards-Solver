@@ -64,6 +64,7 @@ class SolverProgressCallback(cp_model.CpSolverSolutionCallback):
         self._has_new_solution = threading.Event()
         self._updater_thread: Optional[threading.Thread] = None
         self._last_sent_solution_count = 0
+        self._preview_cache: Optional[tuple] = None
 
     def start_background_updater(self):
         """Start the background thread that sends periodic updates."""
@@ -194,10 +195,6 @@ class SolverProgressCallback(cp_model.CpSolverSolutionCallback):
 
         self._has_new_solution.set()
 
-        if self.job_manager.is_cancellation_requested(self.job_id):
-            self.was_cancelled = True
-            self.StopSearch()
-            return
 
     def _capture_solution(self) -> None:
         """Capture the current solution's variable values for extraction (must hold lock)."""
@@ -226,11 +223,15 @@ class SolverProgressCallback(cp_model.CpSolverSolutionCallback):
             'mutation_vars': mutation_values,
             'cell_used_vars': {}
         }
+        # The preview derived from the old values is stale now.
+        self._preview_cache = None
 
     def _extract_preview(self) -> tuple:
         """Extract preview data (placements, mutations, cells_used) from captured solution."""
         if not self.best_solution_values:
             return None, None, None
+        if self._preview_cache is not None:
+            return self._preview_cache
 
         crop_values = self.best_solution_values.get('crop_vars', {})
         mutation_values = self.best_solution_values.get('mutation_vars', {})
@@ -281,7 +282,8 @@ class SolverProgressCallback(cp_model.CpSolverSolutionCallback):
 
         cells_used = len(used_cells)
 
-        return placements, mutations, cells_used
+        self._preview_cache = (placements, mutations, cells_used)
+        return self._preview_cache
 
     def _calculate_percentage(self) -> Optional[float]:
         """Calculate progress percentage based on the maximum of:

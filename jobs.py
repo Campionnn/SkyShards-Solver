@@ -82,8 +82,10 @@ class JobManager:
     def _get_connection(self):
         """Get a thread-local database connection."""
         if not hasattr(self._local, 'conn') or self._local.conn is None:
-            self._local.conn = sqlite3.connect(self.db_path, check_same_thread=False)
-            self._local.conn.row_factory = sqlite3.Row
+            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA synchronous=NORMAL")
+            self._local.conn = conn
         yield self._local.conn
 
     def _init_db(self):
@@ -121,6 +123,12 @@ class JobManager:
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_submitter_status ON jobs(submitter_ip, status)")
 
                 conn.commit()
+
+                try:
+                    conn.execute("PRAGMA journal_mode=WAL")
+                except sqlite3.DatabaseError:
+                    # Keep working on filesystems where WAL is unavailable.
+                    pass
 
     def count_open_jobs(self, submitter_ip: Optional[str] = None) -> int:
         """Queued + running jobs, optionally only those from one submitter IP."""
