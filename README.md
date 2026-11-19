@@ -8,8 +8,10 @@ no queue, and you can give it as much time as you like.
 
 ## Setup
 
-1. Install **Python 3.10 or newer** from <https://www.python.org/downloads/>.
+1. Install **64-bit Python 3.10 to 3.14** (3.13 recommended) from <https://www.python.org/downloads/>.
    On Windows tick **"Add python.exe to PATH"** in the installer.
+   Python 3.15 does not work yet: OR-Tools, the solver library, has no build for it.
+   It can stay installed; the start script picks a supported Python if one is there.
 2. Download and unzip this package anywhere.
 3. Start it:
    - **Windows:** double-click `start.bat`
