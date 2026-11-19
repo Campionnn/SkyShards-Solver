@@ -91,6 +91,7 @@ BUFF_TABLE = build_buff_table(
     DEFAULT_DATA['mutations'],
 )
 MAX_EFFECT_WEIGHT = 100.0
+_MUTATIONS_BY_NAME: Dict[str, dict] = {m['name']: m for m in DEFAULT_DATA['mutations']}
 
 SOLVER_THREADS = int(os.environ.get("SKYSHARDS_SOLVER_WORKERS", "8"))
 
@@ -155,12 +156,29 @@ def validate_effect_request(req: GenericSolveRequest, crop_names: Set[str], muta
             check_weights(t.effect_weights, f"targets[{t.mutation}].effect_weights")
 
     for name in req.buff_crops or []:
-        if name not in crop_names:
-            if name in mutation_names:
-                raise HTTPException(
-                    400, f"buff_crops: '{name}' is a mutation; only base crops can be placed freely for now"
-                )
+        if name not in crop_names and name not in mutation_names:
             raise HTTPException(400, f"buff_crops: unknown crop '{name}'")
+        if name in target_names:
+            raise HTTPException(400, f"buff_crops: '{name}' is a target; a target cannot also be a free buff source")
+
+
+def mutation_defs_by_name() -> Dict[str, dict]:
+    """Raw data.json mutation entries by name."""
+    return _MUTATIONS_BY_NAME
+
+
+def free_mutation_sources(targets: Iterable[MutationGoal], priorities: Dict[str, int]) -> List[str]:
+    """Mutations the solver may place freely as effect sources by default: every
+    mutation with a buff whose effective priority is 0, in data.json order."""
+    target_names = {t.mutation for t in targets or []}
+    out = []
+    for m in DEFAULT_DATA['mutations']:
+        name = m['name']
+        if name in target_names or priorities.get(name, 0) != 0:
+            continue
+        if m.get('positive_buffs') or m.get('negative_buffs'):
+            out.append(name)
+    return out
 
 
 def resolve_buff_sources(
@@ -168,9 +186,13 @@ def resolve_buff_sources(
     default_crops: List[CropDefinition],
     effect_weights: Dict[str, Dict[str, float]],
     required_effects: frozenset = frozenset(),
+    priorities: Optional[Dict[str, int]] = None,
 ) -> List[str]:
     """Names of the plants the solver may place freely as effect sources."""
-    names = list(req.buff_crops) if req.buff_crops is not None else default_buff_crops(default_crops)
+    if req.buff_crops is not None:
+        names = list(req.buff_crops)
+    else:
+        names = default_buff_crops(default_crops) + free_mutation_sources(req.targets, priorities or {})
     seen = set()
     unique = []
     for n in names:
@@ -488,7 +510,7 @@ def prepare_problem(req: GenericSolveRequest) -> PreparedProblem:
     required = special_required_effects(t.mutation for t in req.targets)
     ctx = EffectContext(weights=weights, active=effects_active(weights) or bool(required), required=required)
     if ctx.active:
-        ctx.free_names = resolve_buff_sources(req, default_crops, weights, required)
+        ctx.free_names = resolve_buff_sources(req, default_crops, weights, required, priorities)
 
     unique = unique_crops.plan_unique_crops(req.unique_crops, req.locks, len(req.cells))
     extra_names = list(ctx.free_names) + [n for n in unique.candidate_crops if n not in ctx.free_names]
@@ -725,6 +747,7 @@ def solve_generic(
         mutation_defs=mutation_defs,
         effect_terms=effect_terms,
         score_only=maximize_only,
+        free_mutation_names=[n for n in ctx.free_names if n in mutation_defs_by_name()] if ctx.active else None,
     )
 
     if hints is not None:

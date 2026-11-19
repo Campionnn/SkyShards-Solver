@@ -44,4 +44,4 @@ class MutationDefinition(BaseModel):
     harvest_info: Optional[str] = None
     growing_info: Optional[str] = None
     mutation_chance: float = 0.1
-    spawn_weight: int = Field(0, ge=0)
+    spawn_weight: float = Field(0, ge=0)

@@ -346,6 +346,7 @@ def build_objective(
     mutation_defs: Optional[Dict] = None,
     effect_terms: Optional[List[Tuple[int, cp_model.IntVar]]] = None,
     score_only: bool = False,
+    free_mutation_names: Optional[Iterable[str]] = None,
 ) -> ObjectiveScales:
     """Build the single optimisation objective:"""
     for mut_name, target_count in target_mutations.items():
@@ -373,6 +374,16 @@ def build_objective(
 
     cells_expr = sum(cell_used_vars.values()) if cell_used_vars else 0
 
+    free_mut_vars = [
+        v for name in sorted(set(free_mutation_names or ())) for v in crop_vars.get(name, {}).values()
+    ]
+    cells_mod = 1
+    low_max = num_cells
+    if free_mut_vars:
+        cells_mod = num_cells + 1
+        cells_expr = cells_mod * sum(free_mut_vars) + cells_expr
+        low_max = cells_mod * num_cells + num_cells
+
     if score_only and score_terms:
         model.Maximize(score_expr)
         return ObjectiveScales(
@@ -384,13 +395,13 @@ def build_objective(
             has_score_terms=True,
         )
 
-    PRIORITY_SCALE = num_cells + 1
+    PRIORITY_SCALE = low_max + 1
     if priority_terms:
         max_priority = max(c.priority for c in filtered_crops if c.priority > 0)
         priority_max = PRIORITY_SCALE * max_priority * num_cells
     else:
         priority_max = 0
-    SCORE_SCALE = priority_max + num_cells + 1
+    SCORE_SCALE = priority_max + low_max + 1
 
     model.Maximize(SCORE_SCALE * score_expr - PRIORITY_SCALE * priority_expr - cells_expr)
 
@@ -399,8 +410,9 @@ def build_objective(
         priority_scale=PRIORITY_SCALE,
         gcd=divisor,
         is_plain_count=bool(score_terms) and plain_shape and not effect_terms,
-        objective_is_cells_only=not score_terms and not priority_terms,
+        objective_is_cells_only=not score_terms and not priority_terms and not free_mut_vars,
         has_score_terms=bool(score_terms),
+        cells_mod=cells_mod,
     )
 
 

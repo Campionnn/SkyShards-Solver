@@ -11,6 +11,7 @@
         "harvest_boost"
       ],
       "negative_buffs": [],
+      "multiplier": 0.18,
       "drops": {
         "wheat": 72,
         "seeds": 1
@@ -28,10 +29,11 @@
         "immunity"
       ],
       "negative_buffs": [],
+      "multiplier": 0.125,
       "drops": {
         "potato": 150
       },
-      "sell_price": 2
+      "sell_price": 1.5
     },
     "carrot": {
       "name": "Carrot",
@@ -44,10 +46,11 @@
         "xp_boost"
       ],
       "negative_buffs": [],
+      "multiplier": 0.125,
       "drops": {
         "carrot": 175
       },
-      "sell_price": 2
+      "sell_price": 1.5
     },
     "pumpkin": {
       "name": "Pumpkin",
@@ -60,10 +63,11 @@
         "bonus_drops"
       ],
       "negative_buffs": [],
+      "multiplier": 0.2,
       "drops": {
         "pumpkin": 68
       },
-      "sell_price": 4.5
+      "sell_price": 3
     },
     "melon": {
       "name": "Melon",
@@ -76,10 +80,11 @@
         "water_retain"
       ],
       "negative_buffs": [],
+      "multiplier": 0.2,
       "drops": {
         "melon": 320
       },
-      "sell_price": 1
+      "sell_price": 0.5
     },
     "cocoa_beans": {
       "name": "Cocoa Beans",
@@ -92,10 +97,11 @@
         "immunity"
       ],
       "negative_buffs": [],
+      "multiplier": 0.15,
       "drops": {
         "cocoa_beans": 120
       },
-      "sell_price": 1.5
+      "sell_price": 1
     },
     "sugar_cane": {
       "name": "Sugar Cane",
@@ -110,10 +116,11 @@
       "negative_buffs": [
         "harvest_loss"
       ],
+      "multiplier": 0.17,
       "drops": {
         "sugar_cane": 136
       },
-      "sell_price": 2.5
+      "sell_price": 1.5
     },
     "cactus": {
       "name": "Cactus",
@@ -128,10 +135,11 @@
       "negative_buffs": [
         "harvest_loss"
       ],
+      "multiplier": 0.22,
       "drops": {
         "cactus": 132
       },
-      "sell_price": 2.5
+      "sell_price": 1.5
     },
     "nether_wart": {
       "name": "Nether Wart",
@@ -146,10 +154,11 @@
       "negative_buffs": [
         "xp_loss"
       ],
+      "multiplier": 0.09,
       "drops": {
         "nether_wart": 108
       },
-      "sell_price": 2
+      "sell_price": 1.5
     },
     "red_mushroom": {
       "name": "Red Mushroom",
@@ -164,10 +173,11 @@
       "negative_buffs": [
         "water_drain"
       ],
+      "multiplier": 0.08,
       "drops": {
         "red_mushroom": 30
       },
-      "sell_price": 5
+      "sell_price": 3.5
     },
     "brown_mushroom": {
       "name": "Brown Mushroom",
@@ -182,10 +192,11 @@
       "negative_buffs": [
         "water_drain"
       ],
+      "multiplier": 0.08,
       "drops": {
         "brown_mushroom": 30
       },
-      "sell_price": 5
+      "sell_price": 3.5
     },
     "moonflower": {
       "name": "Moonflower",
@@ -198,10 +209,11 @@
         "bonus_drops"
       ],
       "negative_buffs": [],
+      "multiplier": 0.29,
       "drops": {
         "moonflower": 232
       },
-      "sell_price": 3
+      "sell_price": 2
     },
     "sunflower": {
       "name": "Sunflower",
@@ -214,10 +226,11 @@
         "bonus_drops"
       ],
       "negative_buffs": [],
+      "multiplier": 0.29,
       "drops": {
         "sunflower": 232
       },
-      "sell_price": 3
+      "sell_price": 2
     },
     "wild_rose": {
       "name": "Wild Rose",
@@ -230,10 +243,11 @@
         "effect_spread"
       ],
       "negative_buffs": [],
+      "multiplier": 0.25,
       "drops": {
         "wild_rose": 200
       },
-      "sell_price": 3,
+      "sell_price": 2,
       "notes": "Can only be planted at Garden Level 12."
     },
     "fire": {
@@ -299,6 +313,7 @@
         "xp_loss"
       ],
       "requires_watering": false,
+      "multiplier": 0.15,
       "drops": {
         "nether_wart": 180
       },
@@ -323,6 +338,7 @@
       ],
       "negative_buffs": [],
       "requires_watering": false,
+      "multiplier": 0.25,
       "drops": {
         "cocoa_beans": 200
       },
@@ -347,6 +363,7 @@
       ],
       "negative_buffs": [],
       "requires_watering": false,
+      "multiplier": 0.25,
       "drops": {
         "wheat": 100
       },
@@ -376,6 +393,7 @@
       ],
       "negative_buffs": [],
       "requires_watering": false,
+      "multiplier": 0.2,
       "drops": {
         "pumpkin": 34,
         "melon": 160
@@ -397,6 +415,7 @@
       ],
       "negative_buffs": [],
       "requires_watering": false,
+      "multiplier": 1.75,
       "drops": {
         "potato": 525,
         "carrot": 613,
@@ -428,6 +447,7 @@
       ],
       "negative_buffs": [],
       "requires_watering": false,
+      "multiplier": 0.17,
       "drops": {
         "potato": 102,
         "carrot": 119
@@ -460,6 +480,7 @@
         "harvest_loss"
       ],
       "requires_watering": false,
+      "multiplier": 0.26,
       "drops": {
         "cactus": 78,
         "sugar_cane": 104
@@ -491,6 +512,7 @@
         "water_drain"
       ],
       "requires_watering": false,
+      "multiplier": 0.15,
       "drops": {
         "brown_mushroom": 28,
         "red_mushroom": 28
@@ -516,6 +538,7 @@
       ],
       "negative_buffs": [],
       "requires_watering": false,
+      "multiplier": 0.23,
       "drops": {
         "wild_rose": 184
       },
@@ -544,6 +567,7 @@
       ],
       "negative_buffs": [],
       "requires_watering": true,
+      "multiplier": 2.2,
       "drops": {
         "cocoa_beans": 440,
         "pumpkin": 187,
@@ -577,6 +601,7 @@
         "xp_loss"
       ],
       "requires_watering": false,
+      "multiplier": 1.7,
       "drops": {
         "nether_wart": 1020,
         "wild_rose": 680
@@ -606,6 +631,7 @@
       ],
       "negative_buffs": [],
       "requires_watering": true,
+      "multiplier": 1.7,
       "drops": {
         "potato": 510,
         "carrot": 1190,
@@ -632,6 +658,7 @@
       ],
       "negative_buffs": [],
       "requires_watering": true,
+      "multiplier": 2.8,
       "drops": {
         "cocoa_beans": 2240
       },
@@ -668,6 +695,7 @@
       ],
       "negative_buffs": [],
       "requires_watering": true,
+      "multiplier": 2.7,
       "drops": {
         "moonflower": 720,
         "sunflower": 720,
@@ -698,6 +726,7 @@
       ],
       "negative_buffs": [],
       "requires_watering": true,
+      "multiplier": 2,
       "drops": {
         "brown_mushroom": 190,
         "red_mushroom": 190,
@@ -733,6 +762,7 @@
       "harvest_info": "When using a shared setup, DO NOT harvest until all surrounding mutation spots have been filled.",
       "growing_info": "Since Blastberry explodes on harvest when primed, it is wise to also plant Turtlellini around your naturally grown Blastberry to use each explosion as efficiently as possible. When replaced, it takes 1 stage to prime for explosion. When it decays, Blastberry will explode.",
       "requires_watering": true,
+      "multiplier": 2,
       "drops": {
         "cocoa_beans": 800,
         "nether_wart": 1200
@@ -765,6 +795,7 @@
       ],
       "growing_info": "Rats spawn on Stages 4 and 7, halting mutation growth, and need to be dealt with like a normal Pest.",
       "requires_watering": true,
+      "multiplier": 4,
       "drops": {
         "brown_mushroom": 253,
         "red_mushroom": 253,
@@ -808,6 +839,7 @@
         ]
       },
       "requires_watering": true,
+      "multiplier": 2.7,
       "drops": {
         "brown_mushroom": 128,
         "red_mushroom": 128,
@@ -843,6 +875,7 @@
       ],
       "harvest_info": "Inflicts blindness and nausea when harvesting",
       "requires_watering": true,
+      "multiplier": 2.1,
       "drops": {
         "brown_mushroom": 200,
         "red_mushroom": 200,
@@ -876,6 +909,7 @@
       "harvest_info": "Gives +1 Fleshtrap drop at Full Bonus Meter.",
       "growing_info": "Feed with Enchanted Raw Meat until Fleshtrap has hit 100% Bonus. After 100% Bonus is reached, keep it full with unenchanted meat (i.e. Raw Beef) until it is time to harvest.",
       "requires_watering": true,
+      "multiplier": 1.7,
       "drops": {
         "pumpkin": 289,
         "potato": 510,
@@ -909,6 +943,7 @@
       ],
       "growing_info": "Harvestable at Stage 12 and above, every 12th stage results in +1 mutation drop at base (i.e. Stage 24/36/48...).",
       "requires_watering": true,
+      "multiplier": 3,
       "drops": {
         "moonflower": 600,
         "sunflower": 600,
@@ -943,6 +978,7 @@
       ],
       "growing_info": "Must change the time of day each growth stage. The plant will display what time of day it \"Craves\". ",
       "requires_watering": true,
+      "multiplier": 5.3,
       "drops": {
         "cactus": 1590,
         "wild_rose": 2120
@@ -985,6 +1021,7 @@
       "negative_buffs": [],
       "growing_info": "Must wake it up every 5 stages (Stage 5, Stage 10, Stage 15) for it to continue growing, otherwise it will pause at one of those 3 stages.",
       "requires_watering": true,
+      "multiplier": 21,
       "drops": {
         "moonflower": 4200,
         "sunflower": 4200,
@@ -1017,6 +1054,7 @@
       "negative_buffs": [],
       "growing_info": "Soaks up water from nearby waterable crops/mutations, allowing for Soggybud to grow. Fills 1.4 water per nearby crop, approximately up to 10 per stage.",
       "requires_watering": true,
+      "multiplier": 1.2,
       "drops": {
         "melon": 1920
       },
@@ -1048,6 +1086,7 @@
       ],
       "growing_info": "When growing, the plant will teleport around the plot and override any empty space it finds, changing it to End Stone (including air), and also will leave the spawning location open again. When the amount of growing Chorus Fruits outnumbers the amount of open spots for teleporting, the Chorus Fruit can also override and delete other crops/mutations, not only other Chorus Fruit, such as the Magic Jellybean and Chloronite used in the setup (even if they are growing crops). When multiple Chorus Fruit teleport, it is possible for them to teleport to the same spot and delete one another with the higher growth stage plant taking priority.",
       "requires_watering": false,
+      "multiplier": 3.5,
       "drops": {
         "potato": 1050,
         "carrot": 1225,
@@ -1079,6 +1118,7 @@
       "negative_buffs": [],
       "harvest_info": "You will play a game of Snake (exactly the same as what is found in Abiphones) and you must collect 8 Apples. If you fail, it stays at max stage and you can immediately try again.",
       "requires_watering": false,
+      "multiplier": 23,
       "drops": {
         "moonflower": 4600,
         "sunflower": 4600,
@@ -1112,6 +1152,7 @@
       ],
       "growing_info": "Puffercloud will do AOE damage when you are within its range when growing.",
       "requires_watering": true,
+      "multiplier": 6,
       "drops": {
         "brown_mushroom": 570,
         "red_mushroom": 570,
@@ -1137,6 +1178,7 @@
       "negative_buffs": [],
       "growing_info": "Turtlellini must be exploded TWICE by Blastberry to make a Shellfruit.",
       "requires_watering": false,
+      "multiplier": 0.5,
       "drops": {
         "cocoa_beans": 400
       },
@@ -1169,6 +1211,7 @@
       ],
       "harvest_info": "Wear Sorrow Armor (or have the Invisibility Effect). Careful not to detonate any of your Blastberry within the setup.",
       "requires_watering": true,
+      "multiplier": 7.5,
       "drops": {
         "cactus": 2250,
         "sugar_cane": 3000
@@ -1202,6 +1245,7 @@
       ],
       "harvest_info": "Play a game of \"Red Light/Green Light\" and swing/\"break\" when you see \"Green Light\". Stop once it changes to yellow and then red. It takes upwards of 6 \"rounds\" to fully harvest the mutation. If you fail, it stays at the same stage and you can try again.",
       "requires_watering": true,
+      "multiplier": 25,
       "drops": {
         "cactus": 7500,
         "wild_rose": 10000
@@ -1233,6 +1277,7 @@
       "harvest_info": "Make sure to release the charge before harvesting to not waste any.",
       "growing_info": "While growing Thunderling, it is required you release the built up charge (fills your Thunder in a Bottle items) at least once every 8 stages (~16,000 charge) for the mutation to continue growing. Additionally, a Thunderling should produce a base of 28,000 charge per fully grown mutation.",
       "requires_watering": false,
+      "multiplier": 11,
       "drops": {
         "cactus": 1650,
         "melon": 4400,
@@ -1264,6 +1309,7 @@
       ],
       "negative_buffs": [],
       "requires_watering": false,
+      "multiplier": 0.5,
       "drops": {
         "melon": 800
       },
@@ -1299,6 +1345,7 @@
       "harvest_info": "When harvested, all Dead Plants within the 3x3 turn into Zombud Mobs (5 HP, hit-based) and must be killed for the mutation, shard, and Bestiary credit. Useful tools for killing: Fire Freeze Staff, Gyrokinetic Wand, Huntaxes, Blackholes.",
       "growing_info": "If kicked from Garden/you leave Garden before killing the Zombuds, they will despawn. In shared setups make sure you replant extra dead plants to get the max yield from each mutation. If the mutation decays, the Zombuds will spawn right as it decays if you have Dead Plants in place.",
       "requires_watering": false,
+      "multiplier": 4.5,
       "drops": {
         "pumpkin": 765,
         "wild_rose": 1800
@@ -1359,6 +1406,7 @@
         ]
       },
       "requires_watering": false,
+      "multiplier": 0.7,
       "drops": {
         "moonflower": 140,
         "sunflower": 140,
@@ -1393,6 +1441,7 @@
       ],
       "growing_info": "If you remove the farmland surrounding the Devourer setup, the roots it will try to spread will not be able to make it outside of the contained area. Break the roots as you see them as well.",
       "requires_watering": true,
+      "multiplier": 19,
       "drops": {
         "brown_mushroom": 1805,
         "red_mushroom": 1805,
@@ -1427,6 +1476,7 @@
       ],
       "harvest_info": "Harvestable Glasscorn is not at max stage (Stage 9) but rather at Stages 7-8. If not harvested in time, it will reset.",
       "requires_watering": true,
+      "multiplier": 16,
       "drops": {
         "potato": 4800,
         "cactus": 7200
@@ -1454,6 +1504,7 @@
       "negative_buffs": [],
       "growing_info": "Godseed is very much like a weed and will spread through a plot if there is an adjacent crop that is placed in a spot it could spread all of the positive effects to another open enough area.",
       "requires_watering": true,
+      "multiplier": 8,
       "drops": {
         "brown_mushroom": 117,
         "cocoa_beans": 492,
@@ -1486,6 +1537,7 @@
       "negative_buffs": [],
       "growing_info": "Obtain a Unfulfilled Jerryseed from a Jerry Visitor and take it to Xalx in the Crystal Hollows with a Mysterious Crop. He will give you back an Unripe Jerryseed that you have to reforge to a Dirty Unripe Jerryseed and take to Dirt in the Dwarven Mines. Dirt will give you the Fertilized Jerryseed in return. When growing, Jerryflower will stop at Stage 5 until it is fed 10x Move Jerry.",
       "requires_watering": false,
+      "multiplier": 2,
       "drops": {},
       "spawn_weight": 0
     },
@@ -1514,6 +1566,7 @@
       "negative_buffs": [],
       "harvest_info": "When fully grown, break the Phantomleaf and be ready to look at ANY plant on the same plot as the Phantom leaf. When you find the fastest heartbeat, that is the one you need to break. You have 1 minute to harvest it. If you fail, you will have to grow another.",
       "requires_watering": false,
+      "multiplier": 5,
       "drops": {
         "potato": 3000,
         "carrot": 3500
@@ -1552,6 +1605,7 @@
       "harvest_info": "When harvested, a clone of yourself will spawn. The clone is not too difficult to kill, but if you care to make it easier, spawn the clone without any armor on.",
       "growing_info": "Timestalks \"grow backwards\" in the case they start as a \"fully grown plant\" and shrink over time. When ready to be harvested, it will be smaller than a player head in size.",
       "requires_watering": true,
+      "multiplier": 9,
       "drops": {
         "cactus": 2700,
         "sugar_cane": 3600

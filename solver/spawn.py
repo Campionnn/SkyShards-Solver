@@ -30,8 +30,8 @@ def requirements_of(mut) -> List[Tuple[str, int]]:
     return out
 
 
-def weight_of(mut) -> int:
-    return int(_get(mut, "spawn_weight", 0) or 0)
+def weight_of(mut) -> float:
+    return float(_get(mut, "spawn_weight", 0) or 0)
 
 
 def name_of(mut) -> str:
@@ -135,12 +135,12 @@ def multiplicity(mut, adjacent_counts: Dict[str, int], special_eligible: Optiona
     return max(1, min(k, full_weight_multiplicity(mut)))
 
 
-def pool_denominator(pool_weights: Iterable[int]) -> int:
+def pool_denominator(pool_weights: Iterable[float]) -> float:
     """max(100, sum of weights) - the blank tops the pool up to 100."""
     return max(BLANK_FILL_TO, sum(pool_weights))
 
 
-def spawn_probability(target: str, pool: Dict[str, int]) -> float:
+def spawn_probability(target: str, pool: Dict[str, float]) -> float:
     """Chance that `target` is the pick at a location, given the pool of effective
     weights (already multiplied by multiplicity) keyed by mutation name."""
     if not pool:

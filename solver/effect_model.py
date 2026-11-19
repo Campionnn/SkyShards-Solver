@@ -535,15 +535,27 @@ class ObjectiveScales:
     is_plain_count: bool
     objective_is_cells_only: bool
     has_score_terms: bool
+    cells_mod: int = 1
 
     def decode(self, objective_value: float) -> Tuple[int, int, int]:
         """Split an objective value into (score_int, priority_penalty, cells)."""
+        score_int, priority, low = self._split(objective_value)
+        cells = low % self.cells_mod if self.cells_mod > 1 else low
+        return score_int, priority, cells
+
+    def free_mutations(self, objective_value: float) -> int:
+        """Free mutation placements in an objective value (0 without any)."""
+        if self.cells_mod <= 1:
+            return 0
+        return self._split(objective_value)[2] // self.cells_mod
+
+    def _split(self, objective_value: float) -> Tuple[int, int, int]:
         v = int(round(objective_value))
         score_int = -((-v) // self.score_scale)  # ceil division
         rest = score_int * self.score_scale - v
         priority = rest // self.priority_scale
-        cells = rest - priority * self.priority_scale
-        return score_int, priority, cells
+        low = rest - priority * self.priority_scale
+        return score_int, priority, low
 
     def score_from_int(self, score_int: int) -> float:
         """score_int * gcd is on RATE_SCALE (1.0 == one full-rate slot)."""
